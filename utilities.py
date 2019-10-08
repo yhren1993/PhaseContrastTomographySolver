@@ -3,7 +3,7 @@ Utility functions for AET in Torch
 
 David Ren      david.ren@berkeley.edu
 
-September 16, 2019
+October 7, 2019
 """
 
 import operators as op

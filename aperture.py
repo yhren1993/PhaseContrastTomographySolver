@@ -15,7 +15,7 @@ import torch.nn as nn
 
 complex_mul = op.ComplexMul.apply
 
-def generate_pupil(shape, pixel_size, numerical_aperture, wavelength, \
+def generate_hard_pupil(shape, pixel_size, numerical_aperture, wavelength, \
                    dtype=torch.float32, device=torch.device('cuda')):
     """
     This function generates pupil function(circular function) given shape, pixel_size, na, and wavelength
@@ -27,9 +27,9 @@ def generate_pupil(shape, pixel_size, numerical_aperture, wavelength, \
     pupil        = (kx_lin**2 + ky_lin**2 <= pupil_radius**2).type(dtype)
     return op.r2c(pupil)
 
-def generate_pupil_soft(shape, pixel_size, numerical_aperture, wavelength, \
+def generate_soft_pupil(shape, pixel_size, numerical_aperture, wavelength, \
                         dtype=torch.float32, device=torch.device('cuda')):
-	return generate_pupil(shape, pixel_size, numerical_aperture, wavelength, dtype=dtype, device=device)
+	return generate_hard_pupil(shape, pixel_size, numerical_aperture, wavelength, dtype=dtype, device=device)
 
 def generate_angular_spectrum_kernel(shape, pixel_size, \
                                      wavelength, refractive_index = 1.0, \
@@ -47,7 +47,7 @@ def generate_angular_spectrum_kernel(shape, pixel_size, \
     
     if flag_band_limited:
         assert numerical_aperture is not None, "need to provide numerical aperture of the system!"
-        pupil_crop    = op.r2c(generate_pupil(shape, pixel_size, numerical_aperture, wavelength))
+        pupil_crop    = op.r2c(generate_hard_pupil(shape, pixel_size, numerical_aperture, wavelength))
     else: 
         pupil_crop    = 1.0
 
@@ -56,13 +56,14 @@ def generate_angular_spectrum_kernel(shape, pixel_size, \
     return op.multiply_complex(op._j, prop_kernel)
 
 class Pupil(nn.Module):
-    def __init__(self, shape, pixel_size, wavelength, numerical_aperture=1.0, flag_hard_pupil = True, \
-                 dtype=torch.float32, device=torch.device('cuda')):
+    def __init__(self, shape, pixel_size, wavelength, \
+                 numerical_aperture = 1.0, pupil = None, \
+                 dtype=torch.float32, device=torch.device('cuda'), **kwargs):
         super(Pupil, self).__init__()
-        if flag_hard_pupil:
-            self.pupil = generate_pupil_soft(shape, pixel_size, numerical_aperture, wavelength, dtype, device)
+        if pupil is not None:
+            self.pupil = pupil.type(dtype).to(device)
         else:
-            self.pupil = generate_pupil(shape, pixel_size, numerical_aperture, wavelength, dtype, device)
+            self.pupil = generate_hard_pupil(shape, pixel_size, numerical_aperture, wavelength, dtype, device)
     def get_pupil(self):
         return self.pupil.cpu().detached()
     def forward(self, field):

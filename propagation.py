@@ -76,7 +76,7 @@ class Defocus(torch.autograd.Function):
         return grad_output.sum(2), None, None
 
 class MultislicePropagation(nn.Module):
-    def __init__(self, shape, voxel_size, wavelength, refractive_index=1.0, dtype=torch.float32, device=torch.device('cuda')):
+    def __init__(self, shape, voxel_size, wavelength, refractive_index=1.0, dtype=torch.float32, device=torch.device('cuda'), **kwargs):
         super(MultislicePropagation, self).__init__()
         self.shape            = shape       
         self.voxel_size       = voxel_size
