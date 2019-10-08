@@ -143,12 +143,7 @@ class TorchTomographySolver:
 		"""
 		
 		self.shape 			     = kwargs.get("shape")
-		# self.voxel_size          = kwargs.get("voxel_size")
-		# self.wavelength          = kwargs.get("wavelength")
-		# self.sigma 			     = kwargs.get("sigma",				  None)
-		# self.numerical_aperture  = kwargs.get("numerical_aperture",   1.0)
-		# self.binning_factor      = kwargs.get("slice_binning_factor", 1)
-		# self.pad_size 		     = kwargs.get("pad_size",             (0,0))
+		
 		self.batch_size          = kwargs.get("batch_size",           1)
 		self.shuffle		     = kwargs.get("shuffle",              True)
 		self.optim_max_itr       = kwargs.get("maxitr",               100)
