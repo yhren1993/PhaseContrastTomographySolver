@@ -175,13 +175,14 @@ class TotalVariation(ProximalOperator):
 			self.set_parameter(self.parameter * 1.0, self.maxitr)
 		return x.to(x_device)
 
-	def _computeTVNorm(self, x):
+	def _compute_tv_norm(self, x):
 			x_norm             = x**2
 			x_norm  		   = x_norm.sum(3 if len(x.shape) == 4 else 2)**0.5
-			x_norm[x_norm<1.0] = 1.0
+			x_norm	= torch.clamp(x_norm, min=1.0)
+			# x_norm[x_norm<1.0] = torch.1.0
 			return x_norm		
 
-	def _filterD(self, x, axis):
+	def _filter_d(self, x, axis):
 		assert axis<3, "This function only supports matrix up to 3 dimension!"
 		if self.order == 1:
 			if axis == 0:
@@ -194,7 +195,7 @@ class TotalVariation(ProximalOperator):
 			raise NotImplementedError("filter orders larger than 1 are not implemented!")			
 		return Dx
 
-	def _filterDT(self, x):
+	def _filter_dt(self, x):
 		if self.order == 1:
 			if len(x.shape) == 3:
 				DTx    = x[..., 0] - torch.roll(x[..., 0], -1, dims=0) + \
@@ -210,16 +211,16 @@ class TotalVariation(ProximalOperator):
 	def _compute_prox_real(self, x, projector):
 		t_k        = 1.0
 		
-		def _gradUpdate():
-		    grad_u_hat = x - self.parameter * self._filterDT(u_k1)
+		def _update_gradient():
+		    grad_u_hat = x - self.parameter * self._filter_dt(u_k1)
 		    return grad_u_hat
 		
-		u_k        = torch.zeros(x.shape + (3 if len(x.shape) == 3 else 2,), dtype=self.dtype, device=self.device)
-		u_k1       = torch.zeros(x.shape + (3 if len(x.shape) == 3 else 2,), dtype=self.dtype, device=self.device)
+		u_k  = torch.zeros(x.shape + (3 if len(x.shape) == 3 else 2,), dtype=self.dtype, device=self.device)
+		u_k1 = torch.zeros(x.shape + (3 if len(x.shape) == 3 else 2,), dtype=self.dtype, device=self.device)
 
 		for iteration in range(self.maxitr):
 			if iteration > 0:
-				grad_u_hat  = _gradUpdate()
+				grad_u_hat  = _update_gradient()
 			else:
 				grad_u_hat  = x.clone()
 
@@ -228,12 +229,12 @@ class TotalVariation(ProximalOperator):
 				constant_scale = 8.0
 			elif len(x.shape) == 3: #3D case
 				constant_scale = 12.0
-			u_k1[..., 0] = u_k1[..., 0] + (1.0/constant_scale**self.order/self.parameter) * self._filterD(grad_u_hat, axis=0)
-			u_k1[..., 1] = u_k1[..., 1] + (1.0/constant_scale**self.order/self.parameter) * self._filterD(grad_u_hat, axis=1)			
+			u_k1[..., 0] = u_k1[..., 0] + (1.0/constant_scale**self.order/self.parameter) * self._filter_d(grad_u_hat, axis=0)
+			u_k1[..., 1] = u_k1[..., 1] + (1.0/constant_scale**self.order/self.parameter) * self._filter_d(grad_u_hat, axis=1)			
 			if len(x.shape) == 3: #3D case
-				u_k1[..., 2] = u_k1[..., 2] + (1.0/constant_scale**self.order/self.parameter) * self._filterD(grad_u_hat, axis=2)
-			grad_u_hat = None
-			u_k1_norm          = self._computeTVNorm(u_k1)
+				u_k1[..., 2] = u_k1[..., 2] + (1.0/constant_scale**self.order/self.parameter) * self._filter_d(grad_u_hat, axis=2)
+			grad_u_hat         = None
+			u_k1_norm          = self._compute_tv_norm(u_k1)
 			u_k1              /= u_k1_norm.unsqueeze(-1)
 			u_k1_norm		   = None
 			t_k1               = 0.5 * (1.0 + (1.0 + 4.0*t_k**2)**0.5)
@@ -254,7 +255,7 @@ class TotalVariation(ProximalOperator):
 				u_k1[...,2] =  (1.0 + beta)*u_k1[...,2] - beta*temp
 			temp = None
 
-		grad_u_hat = projector(_gradUpdate())
+		grad_u_hat = projector(_update_gradient())
 		u_k 	   = None
 		u_k1 	   = None		
 		return grad_u_hat

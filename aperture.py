@@ -27,10 +27,6 @@ def generate_hard_pupil(shape, pixel_size, numerical_aperture, wavelength, \
     pupil        = (kx_lin**2 + ky_lin**2 <= pupil_radius**2).type(dtype)
     return op.r2c(pupil)
 
-def generate_soft_pupil(shape, pixel_size, numerical_aperture, wavelength, \
-                        dtype=torch.float32, device=torch.device('cuda')):
-	return generate_hard_pupil(shape, pixel_size, numerical_aperture, wavelength, dtype=dtype, device=device)
-
 def generate_angular_spectrum_kernel(shape, pixel_size, \
                                      wavelength, refractive_index = 1.0, \
                                      numerical_aperture = None,  flag_band_limited=True, \
@@ -62,6 +58,8 @@ class Pupil(nn.Module):
         super(Pupil, self).__init__()
         if pupil is not None:
             self.pupil = pupil.type(dtype).to(device)
+            if len(self.pupil.shape) == 2:
+                self.pupil = op.r2c(self.pupil)
         else:
             self.pupil = generate_hard_pupil(shape, pixel_size, numerical_aperture, wavelength, dtype, device)
     def get_pupil(self):

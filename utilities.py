@@ -126,7 +126,7 @@ def generate_grid_1d(shape, pixel_size = 1, flag_fourier = False, dtype = torch.
 
 def generate_grid_2d(shape, pixel_size = 1, flag_fourier = False, dtype = torch.float32, device = torch.device('cuda')):
     """
-    This function generates 1D Fourier grid, and is centered at the middle of the array
+    This function generates 2D Fourier grid, and is centered at the middle of the array
     Inputs:
         shape              - shape of the grid (number of y pixels, number of x pixels)
         pixel_size         - pixel size
