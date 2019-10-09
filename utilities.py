@@ -312,6 +312,104 @@ class ImageRotation:
                 obj = obj.cpu()
             return obj
 
+class ImageShift:
+    """
+    A class that solves for shift between measurement and prediction. Several possible methods are implemented:
+    a) "gradient" -- gradient method. Adjoint returns the updated shift in x and y (iterative)
+                     to be used with gradient descent in solving for the object. Joint estimation using adjoint()
+    b) "phase" -- pahse correlation method. Adjoint returns the fitted x and y shifts (single shot)
+                     use solveShift()
+    Method shiftImage() can be used by itself, but forward() and adjoint() should be used AS A PAIR!!!
+    """
+    def __init__(self, shape, pixel_size, verbose = False, shift_update_method = "phase", **kwargs):
+        self.shape      = shape
+        self.pixel_size = pixel_size
+        self.verbose    = verbose
+
+        #update methods
+        self.update_method       = update_method
+
+        self.ky_lin, self.kx_lin = generate_grid_2d(self.shape[0:2], self.pixel_size, flag_fourier=True, **kwargs)
+        
+    def _shift_single(self, img_source, x_shift, y_shift):
+        if x_shift==0 and y_shift==0:
+            return img_source
+        else:
+            kernel    = op.exp(op.multiply_complex(op._j, op.r2c(2 * np.pi * (self.kxlin * x_shift + self.kxlin * y_shift))))
+            img_shift = op.convolve_kernel(op.r2c(img_source), kernel)
+        return img_shift[...,0]
+
+    def forward(self, img_source, x_shift, y_shift):
+        if len(img_source.shape) > 2:
+            assert img_source.shape[2] == x_shift.shape[0]
+            assert img_source.shape[2] == y_shift.shape[0]
+            for idx in range(img_source.shape[2]):
+                if x_shift[idx] == 0 and y_shift[idx] == 0:
+                    continue
+                else:
+                    img_source[:,:,idx] = self._shift_single(img_source[:,:,idx], x_shift[idx], y_shift[idx])
+        else:
+            if x_shift == 0 and y_shift == 0:
+                pass
+            else:
+                img_source = self._shift_single(img_source, x_shift, y_shift)
+        return img_source
+            
+    def solve_shift(self, img_predict, img_measure, x_init = 0.0, y_init = 0.0, shift_bound = 10.0):
+        if self.update_method == "phase":
+            if len(img_measure.shape) > 2:
+                y_shift = np.zeros(img_measure.shape[2])
+                x_shift = np.zeros(img_measure.shape[2])
+
+                for idx in range(img_measure.shape[2]):            
+                    a_f = torch.fft(op.r2c(img_predict[:,:,idx]), signal_ndim=2)
+                    b_f_conj = op.conj(torch.fft(op.r2c(img_measure[:,:,idx]), signal_ndim=2))
+                    prod_f = op.multiply_complex(a_f, b_f_conj)
+                    corr = op.fftshift(op.abs(torch.ifft(op.exp(op.multiply_complex(op._j, op.angle(prod_f))),signal_ndim=2)), axes[0,1])
+                    (y_shift_temp, x_shift_temp) = np.unravel_index(torch.argmax(corr).detach(), corr)
+                    y_shift[idx] = (y_shift_temp-corr.shape[0]//2)  * self.pixel_size
+                    x_shift[idx] = (x_shift_temp-corr.shape[1]//2)  * self.pixel_size
+            else:                
+                a_f = torch.fft(op.r2c(img_predict), signal_ndim=2)
+                b_f_conj = op.conj(torch.fft(op.r2c(img_measure), signal_ndim=2))
+                prod_f = op.multiply_complex(a_f, b_f_conj)
+                corr = op.fftshift(op.abs(torch.ifft(op.exp(op.multiply_complex(op._j, op.angle(prod_f))),signal_ndim=2)), axes[0,1])
+                (y_shift_temp, x_shift_temp) = np.unravel_index(torch.argmax(corr).detach(), corr)
+                y_shift = (y_shift_temp-corr.shape[0]//2)  * self.pixel_size
+                x_shift = (x_shift_temp-corr.shape[1]//2)  * self.pixel_size
+                
+        elif self.update_method == "cross":
+            if len(img_measure.shape) > 2:
+                y_shift = np.zeros(img_measure.shape[2])
+                x_shift = np.zeros(img_measure.shape[2])
+
+                for idx in range(img_measure.shape[2]):            
+                    a_f = torch.fft(op.r2c(img_predict[:,:,idx]), signal_ndim=2)
+                    b_f_conj = op.conj(torch.fft(op.r2c(img_measure[:,:,idx]), signal_ndim=2))
+                    prod_f = op.multiply_complex(a_f, b_f_conj)
+                    corr = op.fftshift(op.abs(torch.ifft(prod_f,signal_ndim=2)), axes[0,1])
+                    (y_shift_temp, x_shift_temp) = np.unravel_index(torch.argmax(corr).detach(), corr)
+                    y_shift[idx] = (y_shift_temp-corr.shape[0]//2)  * self.pixel_size
+                    x_shift[idx] = (x_shift_temp-corr.shape[1]//2)  * self.pixel_size
+            else:                
+                a_f = torch.fft(op.r2c(img_predict), signal_ndim=2)
+                b_f_conj = op.conj(torch.fft(op.r2c(img_measure), signal_ndim=2))
+                prod_f = op.multiply_complex(a_f, b_f_conj)
+                corr = op.fftshift(op.abs(torch.ifft(prod_f,signal_ndim=2)), axes[0,1])
+                (y_shift_temp, x_shift_temp) = np.unravel_index(torch.argmax(corr).detach(), corr)
+                y_shift = (y_shift_temp-corr.shape[0]//2)  * self.pixel_size
+                x_shift = (x_shift_temp-corr.shape[1]//2)  * self.pixel_size
+                
+        if (np.abs(x_shift) > shift_bound).any() or (np.abs(y_shift) > shift_bound).any():
+            if self.verbose:
+                print("WARNING: Shift estimation diverged! Not updating! ")
+                print("y_shift", y_shift)
+                print("x_shift", x_shift)
+                y_shift -= y_shift
+                x_shift -= x_shift
+                
+        return x_shift, y_shift
+
 class BinObject(torch.autograd.Function):
     '''
     Angular spectrum convolution class for autograd
