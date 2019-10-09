@@ -8,6 +8,7 @@ September 16, 2019
 """
 
 import torch
+import numpy as np
 
 _j = torch.tensor([0,1])
 

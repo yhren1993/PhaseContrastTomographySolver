@@ -327,7 +327,7 @@ class ImageShift:
         self.verbose    = verbose
 
         #update methods
-        self.update_method       = update_method
+        self.update_method       = shift_update_method
 
         self.ky_lin, self.kx_lin = generate_grid_2d(self.shape[0:2], self.pixel_size, flag_fourier=True, **kwargs)
         
@@ -335,14 +335,15 @@ class ImageShift:
         if x_shift==0 and y_shift==0:
             return img_source
         else:
-            kernel    = op.exp(op.multiply_complex(op._j, op.r2c(2 * np.pi * (self.kxlin * x_shift + self.kxlin * y_shift))))
-            img_shift = op.convolve_kernel(op.r2c(img_source), kernel)
+            print(self.kx_lin.shape)
+            kernel    = op.exp(op.multiply_complex(op._j, op.r2c(2 * np.pi * (self.kx_lin * x_shift + self.ky_lin * y_shift))))
+            img_shift = op.convolve_kernel(op.r2c(img_source), kernel, n_dim=2)
         return img_shift[...,0]
 
     def forward(self, img_source, x_shift, y_shift):
         if len(img_source.shape) > 2:
-            assert img_source.shape[2] == x_shift.shape[0]
-            assert img_source.shape[2] == y_shift.shape[0]
+            assert img_source.shape[2] == len(x_shift)
+            assert img_source.shape[2] == len(y_shift)
             for idx in range(img_source.shape[2]):
                 if x_shift[idx] == 0 and y_shift[idx] == 0:
                     continue
@@ -365,16 +366,16 @@ class ImageShift:
                     a_f = torch.fft(op.r2c(img_predict[:,:,idx]), signal_ndim=2)
                     b_f_conj = op.conj(torch.fft(op.r2c(img_measure[:,:,idx]), signal_ndim=2))
                     prod_f = op.multiply_complex(a_f, b_f_conj)
-                    corr = op.fftshift(op.abs(torch.ifft(op.exp(op.multiply_complex(op._j, op.angle(prod_f))),signal_ndim=2)), axes[0,1])
-                    (y_shift_temp, x_shift_temp) = np.unravel_index(torch.argmax(corr).detach(), corr)
+                    corr = op.fftshift(op.abs(torch.ifft(op.exp(op.multiply_complex(op._j, op.r2c(op.angle(prod_f)))),signal_ndim=2)), axes=[0,1])
+                    (y_shift_temp, x_shift_temp) = np.unravel_index(torch.argmax(corr).cpu().detach(), corr.shape)
                     y_shift[idx] = (y_shift_temp-corr.shape[0]//2)  * self.pixel_size
                     x_shift[idx] = (x_shift_temp-corr.shape[1]//2)  * self.pixel_size
             else:                
                 a_f = torch.fft(op.r2c(img_predict), signal_ndim=2)
                 b_f_conj = op.conj(torch.fft(op.r2c(img_measure), signal_ndim=2))
                 prod_f = op.multiply_complex(a_f, b_f_conj)
-                corr = op.fftshift(op.abs(torch.ifft(op.exp(op.multiply_complex(op._j, op.angle(prod_f))),signal_ndim=2)), axes[0,1])
-                (y_shift_temp, x_shift_temp) = np.unravel_index(torch.argmax(corr).detach(), corr)
+                corr = op.fftshift(op.abs(torch.ifft(op.exp(op.multiply_complex(op._j, op.r2c(op.angle(prod_f)))),signal_ndim=2)), axes=[0,1])
+                (y_shift_temp, x_shift_temp) = np.unravel_index(torch.argmax(corr).cpu().detach(), corr.shape)
                 y_shift = (y_shift_temp-corr.shape[0]//2)  * self.pixel_size
                 x_shift = (x_shift_temp-corr.shape[1]//2)  * self.pixel_size
                 
@@ -388,7 +389,7 @@ class ImageShift:
                     b_f_conj = op.conj(torch.fft(op.r2c(img_measure[:,:,idx]), signal_ndim=2))
                     prod_f = op.multiply_complex(a_f, b_f_conj)
                     corr = op.fftshift(op.abs(torch.ifft(prod_f,signal_ndim=2)), axes[0,1])
-                    (y_shift_temp, x_shift_temp) = np.unravel_index(torch.argmax(corr).detach(), corr)
+                    (y_shift_temp, x_shift_temp) = np.unravel_index(torch.argmax(corr).cpu().detach(), corr.shape)
                     y_shift[idx] = (y_shift_temp-corr.shape[0]//2)  * self.pixel_size
                     x_shift[idx] = (x_shift_temp-corr.shape[1]//2)  * self.pixel_size
             else:                
@@ -396,7 +397,7 @@ class ImageShift:
                 b_f_conj = op.conj(torch.fft(op.r2c(img_measure), signal_ndim=2))
                 prod_f = op.multiply_complex(a_f, b_f_conj)
                 corr = op.fftshift(op.abs(torch.ifft(prod_f,signal_ndim=2)), axes[0,1])
-                (y_shift_temp, x_shift_temp) = np.unravel_index(torch.argmax(corr).detach(), corr)
+                (y_shift_temp, x_shift_temp) = np.unravel_index(torch.argmax(corr).cpu().detach(), corr.shape)
                 y_shift = (y_shift_temp-corr.shape[0]//2)  * self.pixel_size
                 x_shift = (x_shift_temp-corr.shape[1]//2)  * self.pixel_size
                 
