@@ -85,6 +85,19 @@ def convolve_kernel(input, kernel, n_dim=1, flag_inplace=True):
         output = torch.ifft(output,signal_ndim=n_dim)             
         return output
 
+def fftshift(input, axes=None):
+    ret = input.clone()
+    axes= np.atleast_1d(axes)
+    for axis in axes:
+        ret =  torch.roll(ret, ret.shape[axis]//2, dims=int(axis))
+    return ret
+
+def ifftshift(input, axes=None):
+    ret = input.clone()
+    axes= np.atleast_1d(axes)
+    for axis in axes:
+        ret =  torch.roll(ret, -1*int(ret.shape[axis]//2), dims=int(axis))
+    return ret
 
 class ComplexMul(torch.autograd.Function):
     '''Complex multiplication class for autograd'''

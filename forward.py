@@ -43,7 +43,6 @@ class PhaseContrastTomography(nn.Module):
 		self.voxel_size     = voxel_size
 		self.wavelength     = wavelength
 		
-		
 		#forward propagation
 		self.shape_prop          = self.shape.copy()
 		self.shape_prop[2]     //= self.binning_factor
@@ -68,9 +67,9 @@ class PhaseContrastTomography(nn.Module):
 
 		#pupil
 		field = self._pupil(field)
-		# #defocus		
+		#defocus		
 		field = field_defocus(field, self._propagation.kernel, defocus_list)
-		# #crop
+		#crop
 		field = F.pad(field, (0,0,0,0, \
 							  -1 * self.pad_size[1], -1 * self.pad_size[1], \
 							  -1 * self.pad_size[0], -1 * self.pad_size[0]))
