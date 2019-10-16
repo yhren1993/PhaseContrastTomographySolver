@@ -121,7 +121,7 @@ def generate_grid_1d(shape, pixel_size = 1, flag_fourier = False, dtype = torch.
     pixel_size = 1./pixel_size/shape if flag_fourier else pixel_size
     x_lin = (torch.arange(shape, dtype=dtype, device=device) - shape//2) * pixel_size
     if flag_fourier:
-        x_lin = torch.roll(x_lin, -1 * shape//2)
+        x_lin = torch.roll(x_lin, -1 * int(shape)//2)
     return x_lin
 
 def generate_grid_2d(shape, pixel_size = 1, flag_fourier = False, dtype = torch.float32, device = torch.device('cuda')):
@@ -319,7 +319,6 @@ class ImageShift:
                      to be used with gradient descent in solving for the object. Joint estimation using adjoint()
     b) "phase" -- pahse correlation method. Adjoint returns the fitted x and y shifts (single shot)
                      use solveShift()
-    Method shiftImage() can be used by itself, but forward() and adjoint() should be used AS A PAIR!!!
     """
     def __init__(self, shape, pixel_size, verbose = False, shift_update_method = "phase", **kwargs):
         self.shape      = shape

@@ -122,7 +122,9 @@ class TorchTomographySolver:
 			shuffle: random shuffle of measurements, boolean [True]
 			pupil: inital value for the pupil function [None]
 			refractive_index: background refractive index (air 1.0, water 1.33) [1.0]
-
+			maxitr: maximum number of iterations [100]
+			step_size: step_size for each gradient update [0.1]
+			momentum: [0.0 NOTIMPLEMENTED]
 
 			-- regularizer parameters --
 			regularizer_total_variation: boolean [False]
