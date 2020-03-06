@@ -10,7 +10,7 @@ September 16, 2019
 import torch
 import numpy as np
 
-_j = torch.tensor([0,1])
+_j = torch.tensor([0.0,1.0])
 
 def r2c(real_tensor):
     '''Convert from real to complex'''
