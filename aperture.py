@@ -63,7 +63,7 @@ class Pupil(nn.Module):
         else:
             self.pupil = generate_hard_pupil(shape, pixel_size, numerical_aperture, wavelength, dtype, device)
     def get_pupil(self):
-        return self.pupil.cpu().detached()
+        return self.pupil.cpu()
     def forward(self, field):
         field = torch.fft(field, signal_ndim=2)
         field = complex_mul(field, self.pupil)

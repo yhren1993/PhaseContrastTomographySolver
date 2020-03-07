@@ -152,7 +152,7 @@ class TorchTomographySolver:
 		self.optim_momentum      = kwargs.get("momentum",             0.0)
 
 		self.dataset      	     = AETDataset(**kwargs)
-		self.aet_obj             = PhaseContrastTomography(**kwargs)
+		self.tomography_obj             = PhaseContrastTomography(**kwargs)
 		self.regularizer_obj     = Regularizer(**kwargs)
 		self.rotation_obj	     = utilities.ImageRotation(self.shape, axis = 0)
 		
@@ -215,7 +215,7 @@ class TorchTomographySolver:
 						optimizer = optim.SGD([self.obj], lr=self.optim_step_size)
 					
 					#forward scattering
-					estimated_amplitudes = self.aet_obj(self.obj, defocus_list)
+					estimated_amplitudes = self.tomography_obj(self.obj, defocus_list)
 					if not forward_only:
 			    		#compute cost
 						cost = self.cost_function(estimated_amplitudes, amplitudes.cuda())
@@ -250,7 +250,7 @@ class TorchTomographySolver:
 			if forward_only and itr_idx == 0:
 				return amplitude_list
 
-		return self.obj, error
+		return self.obj.cpu().detach(), error
 
 
 
