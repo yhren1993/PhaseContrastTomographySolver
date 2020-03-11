@@ -69,7 +69,7 @@ def compare3DStack(stack_1, stack_2, axis = 2, cmap = "gray", clim = (0, 1), ext
         image_2  = lambda index: stack_2[:, :, index]
 
     current_idx  = 0
-    _, ax        = plt.subplots(1, 2, figsize=(13, 5), sharex = 'all', sharey = 'all')
+    _, ax        = plt.subplots(1, 2, figsize=(9, 5), sharex = 'all', sharey = 'all')
     plt.subplots_adjust(left=0.15, bottom=0.15)
     fig_1        = ax[0].imshow(image_1(current_idx), cmap = cmap,  clim = clim, extent = extent)
     ax[0].axis("off")

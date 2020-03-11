@@ -152,7 +152,7 @@ class TorchTomographySolver:
 		self.optim_momentum      = kwargs.get("momentum",             0.0)
 
 		self.dataset      	     = AETDataset(**kwargs)
-		self.tomography_obj             = PhaseContrastTomography(**kwargs)
+		self.tomography_obj      = PhaseContrastTomography(**kwargs)
 		self.regularizer_obj     = Regularizer(**kwargs)
 		self.rotation_obj	     = utilities.ImageRotation(self.shape, axis = 0)
 		

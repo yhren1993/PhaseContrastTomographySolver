@@ -9,6 +9,7 @@ September 16, 2019
 import numpy as np
 import operators as op
 import torch
+import gc
 
 
 class Regularizer:
@@ -47,7 +48,10 @@ class Regularizer:
 				kwargs["regularizer_device"] = torch.device('cuda')
 			else:				
 				kwargs["regularizer_device"] = torch.device('cpu')
-			self.prox_list.append(TotalVariation(**kwargs))
+			if kwargs.get("regularizer_total_variation_anisotropic", False):
+				self.prox_list.append(TotalVariationAnisotropic(**kwargs))
+			else:
+				self.prox_list.append(TotalVariation(**kwargs))
 		#Others
 		else:
 			#Purely real
@@ -93,6 +97,7 @@ class Regularizer:
 	def apply(self, x):
 		for prox_op in self.prox_list:
 			x = prox_op.compute_prox(x)
+		torch.cuda.empty_cache()
 		return x
 
 class ProximalOperator():
@@ -179,7 +184,6 @@ class TotalVariation(ProximalOperator):
 			x_norm             = x**2
 			x_norm  		   = x_norm.sum(3 if len(x.shape) == 4 else 2)**0.5
 			x_norm	= torch.clamp(x_norm, min=1.0)
-			# x_norm[x_norm<1.0] = torch.1.0
 			return x_norm		
 
 	def _filter_d(self, x, axis):
@@ -259,6 +263,41 @@ class TotalVariation(ProximalOperator):
 		u_k 	   = None
 		u_k1 	   = None		
 		return grad_u_hat
+
+class TotalVariationAnisotropic(TotalVariation):
+	"""
+	Anisotropic version of TV, meant for 3D only!
+	Saves memory comparing to iterative version of TV
+	"""
+	def _compute_prox_real(self, x, projector):
+		assert len(x.shape) == 3
+		# parallel proximal method
+		return (1/6)*(self._computeProxRealSingleAxis(x) + \
+					self._computeProxRealSingleAxis(x,shift=True) + \
+					self._computeProxRealSingleAxis(x.permute(1,0,2)).permute(1,0,2) + \
+					self._computeProxRealSingleAxis(x.permute(1,0,2),shift=True).permute(1,0,2) + \
+					self._computeProxRealSingleAxis(x.permute(2,0,1)).permute(1,2,0) + \
+					self._computeProxRealSingleAxis(x.permute(2,0,1),shift=True).permute(1,2,0))
+
+	def _computeProxRealSingleAxis(self,x,shift=False):
+		self.Np = x.shape
+		if np.mod(self.Np[0],2) == 1:
+			raise NotImplementedError('Shape cannot be odd')
+		if shift:
+			x = x.roll(1, dims = 0)
+		c = torch.from_numpy(np.asarray([1/np.sqrt(2)])).float().to(self.device)
+		z1 = self.softThr(c*(x[1::2,:]-x[0::2,:]))*c
+		x[0::2,:] += x[1::2,:]
+		x[1::2,:]  = x[0::2,:]
+		x         *= c**2
+		x[0::2,:] -= z1
+		x[1::2,:] += z1
+		if shift:
+			x = x.roll(-1, dims = 0)
+		return x
+
+	def softThr(self,x):
+		return torch.sign(x) * (torch.abs(x) - self.parameter) * (torch.abs(x) > self.parameter).float()
 
 class Positivity(ProximalOperator):
 	"""Enforce positivity constraint on a complex variable's real & imaginary part."""
