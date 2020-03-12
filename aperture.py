@@ -29,7 +29,7 @@ def generate_hard_pupil(shape, pixel_size, numerical_aperture, wavelength, \
 
 def generate_angular_spectrum_kernel(shape, pixel_size, \
                                      wavelength, refractive_index = 1.0, \
-                                     numerical_aperture = None,  flag_band_limited=True, \
+                                     numerical_aperture=None,  flag_band_limited=True, \
                                      dtype=torch.float32, device=torch.device('cuda')):
     """
     Function that generates angular spectrum propagation kernel WITHOUT the distance

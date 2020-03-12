@@ -412,12 +412,10 @@ class ImageShift:
 
 class BinObject(torch.autograd.Function):
     '''
-    Angular spectrum convolution class for autograd
+    Class that bins the object along the direction of beam propagation (z)
     inputs:
-    field_in: input field at the layer
-    pixel_size: sampling voxel size in 3D, should be a 3D volume in (ps_y, ps_x, ps_z)
-    wavelength: wavelength of the field
-    refractive_index: the index of the media in which the wave propagates (air by defaultyou)
+    obj_in: input object 
+    factor: factor at which the object will be binned
     '''
     @staticmethod
     def forward(ctx, obj_in, factor):
