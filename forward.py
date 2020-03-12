@@ -64,11 +64,10 @@ class PhaseContrastTomography(nn.Module):
 		obj = complex_exp(complex_mul(op._j, self.sigma * obj))
 		#forward propagation & defocus
 		field = self._propagation(obj)
-
 		#pupil
 		field = self._pupil(field)
 		#defocus		
-		field = field_defocus(field, self._propagation.kernel, defocus_list)
+		field = field_defocus(field, self._propagation.propagate.kernel_phase, defocus_list)
 		#crop
 		field = F.pad(field, (0,0,0,0, \
 							  -1 * self.pad_size[1], -1 * self.pad_size[1], \

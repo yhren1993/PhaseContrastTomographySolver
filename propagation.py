@@ -15,39 +15,6 @@ complex_mul = op.ComplexMul.apply
 
 import numpy as np
 
-
-class SingleSlicePropagation(torch.autograd.Function):
-    '''
-    Angular spectrum convolution class for autograd
-    inputs:
-    field_in: input field at the layer
-	pixel_size: sampling voxel size in 3D, should be a 3D volume in (ps_y, ps_x, ps_z)
-	wavelength: wavelength of the field
-	refractive_index: the index of the media in which the wave propagates (air by defaultyou)
-    '''
-    @staticmethod
-    def forward(ctx, field_in, propagation_distance, phase):
-        ctx.save_for_backward(phase)
-        ctx.propagation_distance = propagation_distance
-        if propagation_distance == 0:
-            return field_in
-        kernel = op.exp(abs(propagation_distance) * phase)
-        kernel = kernel if propagation_distance > 0. else op.conj(kernel)
-        field_out = op.convolve_kernel(field_in, kernel, n_dim=2, flag_inplace=False)
-        return field_out
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        phase, = ctx.saved_tensors
-        propagation_distance = ctx.propagation_distance
-        if propagation_distance == 0:
-            return grad_output
-        kernel = op.exp(abs(propagation_distance) * phase)
-        kernel = kernel if propagation_distance < 0. else op.conj(kernel)
-        grad_output = op.convolve_kernel(grad_output, kernel, n_dim=2, flag_inplace=False)
-        return grad_output, None, None
-propagate = SingleSlicePropagation.apply
-
 class Defocus(torch.autograd.Function):
     @staticmethod
     def forward(ctx, field, kernel, defocus_list= [0.0]):
@@ -76,33 +43,49 @@ class Defocus(torch.autograd.Function):
         return grad_output.sum(2), None, None
 
 class MultislicePropagation(nn.Module):
-    def __init__(self, shape, voxel_size, wavelength, refractive_index=1.0, dtype=torch.float32, device=torch.device('cuda'), **kwargs):
+    def __init__(self, shape, voxel_size, wavelength, refractive_index = 1.0, numerical_aperture=None, dtype=torch.float32, device=torch.device('cuda'),   **kwargs):
         super(MultislicePropagation, self).__init__()
-        self.shape            = shape       
+        self.shape            = shape  
         self.voxel_size       = voxel_size
-        self.wavelength       = wavelength
-        self.refractive_index = refractive_index
-        self.dtype            = dtype
-        self.device           = device
-        self.kernel           = generate_angular_spectrum_kernel(self.shape[0:2], self.voxel_size[0], \
-                                                                 self.wavelength, refractive_index=self.refractive_index, \
-                                                                 numerical_aperture=None, flag_band_limited=False, \
-                                                                 dtype=self.dtype, device=self.device)    
         self.distance_to_center = (self.shape[2]/2. - 1/2.) * self.voxel_size[2]
+        self.propagate        = SingleSlicePropagation(self.shape[0:2], self.voxel_size[0],  \
+                                                       wavelength, refractive_index, \
+                                                       numerical_aperture=None, flag_band_limited=False, \
+                                                       dtype=dtype, device=device)    
     def forward(self, obj, field_in=None):
         field = field_in
-        with contexttimer.Timer() as timer:
-            if field is None:
-                field = obj[:,:,0,:]
+        if field is None:
+            field = obj[:,:,0,:]
+        else:
+            field = complex_mul(field, obj[:,:,0,:])
+        field = self.propagate(field, self.voxel_size[2])    
+        for layer_idx in range(1, self.shape[2]):
+            field = complex_mul(field, obj[:,:,layer_idx,:])
+            if layer_idx < self.shape[2] - 1:
+                #Propagate forward one layer
+                field = self.propagate(field, self.voxel_size[2])
             else:
-                field = complex_mul(field, obj[:,:,0,:])
-            field = propagate(field, self.voxel_size[2], self.kernel)    
-            for layer_idx in range(1, self.shape[2]):
-                field = complex_mul(field, obj[:,:,layer_idx,:])
-              
-                if layer_idx < self.shape[2] - 1:
-                    #Propagate forward one layer
-                    field = propagate(field, self.voxel_size[2], self.kernel)
-                else:
-                    field = propagate(field, -1. * self.distance_to_center, self.kernel)
+                field = self.propagate(field, -1. * self.distance_to_center)
         return field
+
+class SingleSlicePropagation(nn.Module):
+    '''
+    Class for propagation for single slice
+    '''
+    def __init__(self, shape, pixel_size, \
+                 wavelength, refractive_index = 1.0, \
+                 numerical_aperture=None,  flag_band_limited=False, \
+                 dtype=torch.float32, device=torch.device('cuda')):
+        super(SingleSlicePropagation, self).__init__()
+        self.kernel_phase     = generate_angular_spectrum_kernel(shape, pixel_size, \
+                                                                 wavelength, refractive_index, \
+                                                                 numerical_aperture=None,  flag_band_limited=False, \
+                                                                 dtype=dtype, device=device)
+
+    def forward(self, field_in, propagation_distance):
+        if propagation_distance == 0:
+            return field_in
+        kernel = op.exp(abs(propagation_distance) * self.kernel_phase)
+        kernel = kernel if propagation_distance > 0. else op.conj(kernel)
+        field_out = op.convolve_kernel(field_in, kernel, n_dim=2, flag_inplace=False)
+        return field_out        
