@@ -70,11 +70,22 @@ def division_complex(complex_tensor1, complex_tensor2):
     return torch.stack((complex_tensor_mul_real, complex_tensor_mul_imag), dim=len(complex_tensor_mul_real.shape))
 
 def abs(complex_tensor):
+    '''Compute element-wise absolute value of a complex variable'''
     assert complex_tensor.shape[-1]==2, "Complex tensor should have real and imaginary parts."
     output         = ((complex_tensor**2).sum(-1))**0.5
     return output    
 
 def convolve_kernel(input, kernel, n_dim=1, flag_inplace=True):
+    '''
+    Compute convolution FFT(input) and kernel
+    Required Args:
+        input: variable 1 in real space
+        kernel: variable 2 in reciprocal space
+
+    Optional Args [default]
+        n_dim: number of dimensions to compute convolution [1]
+        flag_inplace: Whether or not compute convolution inplace, result saved in 'input' [True]
+    '''
     if flag_inplace:
         input = torch.fft(input, signal_ndim=n_dim)
         input = multiply_complex(input, kernel)
@@ -87,6 +98,7 @@ def convolve_kernel(input, kernel, n_dim=1, flag_inplace=True):
         return output
 
 def fftshift(input, axes=None):
+    '''Custom implemented fftshift operator'''
     ret = input.clone()
     axes= np.atleast_1d(axes)
     for axis in axes:
@@ -94,6 +106,7 @@ def fftshift(input, axes=None):
     return ret
 
 def ifftshift(input, axes=None):
+    '''Custom implemented ifftshift operator'''
     ret = input.clone()
     axes= np.atleast_1d(axes)
     for axis in axes:

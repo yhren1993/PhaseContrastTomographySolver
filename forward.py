@@ -33,73 +33,6 @@ complex_mul   = op.ComplexMul.apply
 complex_abs   = op.ComplexAbs.apply
 field_defocus = Defocus.apply
 
-class PhaseContrastTomography(nn.Module):
-	def __init__(self, shape, voxel_size, wavelength, sigma=None, binning_factor=1, pad_size=[0,0], **kwargs):
-		#create object -- multiple layers of projected electrostatic potentials
-		super(PhaseContrastTomography, self).__init__()
-		self.binning_factor = binning_factor
-		self.shape          = shape
-		self.pad_size       = pad_size
-		self.voxel_size     = voxel_size
-		self.wavelength     = wavelength
-		
-		#forward propagation
-		self.shape_prop          = self.shape.copy()
-		self.shape_prop[2]     //= self.binning_factor
-		self.voxel_size_prop     = self.voxel_size.copy()
-		self.voxel_size_prop[2] *= self.binning_factor
-		self._propagation = MultislicePropagation(self.shape_prop, self.voxel_size_prop, self.wavelength, **kwargs)
-		
-		self.sigma          = sigma
-		if self.sigma is None:
-			self.sigma = (2 * np.pi / self.wavelength) * self.voxel_size_prop[2]
-
-		#filter with aperture
-		self._pupil       = Pupil(self.shape[0:2], self.voxel_size[0], self.wavelength, **kwargs)
-
-	def forward(self, obj, defocus_list):
-		#bin object
-		obj = bin_obj(obj, self.binning_factor)
-		#raise to transmittance
-		obj = complex_exp(complex_mul(op._j, self.sigma * obj))
-		#forward propagation & defocus
-		field = self._propagation(obj)
-		#pupil
-		field = self._pupil(field)
-		#defocus		
-		field = field_defocus(field, self._propagation.propagate.kernel_phase, defocus_list)
-		#crop
-		field = F.pad(field, (0,0,0,0, \
-							  -1 * self.pad_size[1], -1 * self.pad_size[1], \
-							  -1 * self.pad_size[0], -1 * self.pad_size[0]))
-		#compute amplitude
-		amplitudes = complex_abs(field)
-
-		return amplitudes
-
-class AETDataset(Dataset):
-	def __init__(self, amplitude_measurements=None, tilt_angles=None, defocus_stack=None, **kwargs):
-		"""
-		Args:
-		    transform (callable, optional): Optional transform to be applied
-		        on a sample.
-		"""
-		self.amplitude_measurements = amplitude_measurements
-		if self.amplitude_measurements is not None:
-			self.amplitude_measurements = amplitude_measurements.astype("float32")
-		self.tilt_angles = tilt_angles * 1.0
-		self.defocus_stack = defocus_stack * 1.0
-
-	def __len__(self):
-		return self.tilt_angles.shape[0]
-
-	def __getitem__(self, idx):
-        #X x Y x #defocus
-		if self.amplitude_measurements is not None:
-			return self.amplitude_measurements[...,idx], self.tilt_angles[idx], self.defocus_stack
-		else:
-			return self.tilt_angles[idx], self.defocus_stack
-
 class TorchTomographySolver:
 	def __init__(self, **kwargs):
 		"""
@@ -151,7 +84,7 @@ class TorchTomographySolver:
 		self.optim_momentum      = kwargs.get("momentum",             0.0)
 
 		self.dataset      	     = AETDataset(**kwargs)
-		self.tomography_obj      = PhaseContrastTomography(**kwargs)
+		self.tomography_obj      = PhaseContrastScattering(**kwargs)
 		self.regularizer_obj     = Regularizer(**kwargs)
 		self.rotation_obj	     = utilities.ImageRotation(self.shape, axis = 0)
 		
@@ -207,7 +140,6 @@ class TorchTomographySolver:
 							self.obj = self.rotation_obj.forward(self.obj, rotation_angle)
 						else:
 							self.obj = self.rotation_obj.forward(self.obj, rotation_angle - previous_angle)					
-					
 					if not forward_only:
 						#define optimizer
 						self.obj.requires_grad_()
@@ -250,6 +182,92 @@ class TorchTomographySolver:
 				return amplitude_list
 
 		return self.obj.cpu().detach(), error
+
+class AETDataset(Dataset):
+	def __init__(self, amplitude_measurements=None, tilt_angles=None, defocus_stack=None, **kwargs):
+		"""
+		Args:
+		    transform (callable, optional): Optional transform to be applied
+		        on a sample.
+		"""
+		self.amplitude_measurements = amplitude_measurements
+		if self.amplitude_measurements is not None:
+			self.amplitude_measurements = amplitude_measurements.astype("float32")
+		self.tilt_angles = tilt_angles * 1.0
+		self.defocus_stack = defocus_stack * 1.0
+
+	def __len__(self):
+		return self.tilt_angles.shape[0]
+
+	def __getitem__(self, idx):
+        #X x Y x #defocus
+		if self.amplitude_measurements is not None:
+			return self.amplitude_measurements[...,idx], self.tilt_angles[idx], self.defocus_stack
+		else:
+			return self.tilt_angles[idx], self.defocus_stack
+
+
+class PhaseContrastScattering(nn.Module):
+
+	def __init__(self, shape, voxel_size, wavelength, sigma=None, binning_factor=1, pad_size=[0,0], **kwargs):
+		"""
+		Phase contrast scattering model
+		Starts from a plane wave, 3D object, and a list of defocus distance (in Angstrom).
+		Computes intensity phase contrast image after electron scatters through the sample using multislice algorithm
+		Required Args:
+			shape: shape of the object in [y, x, z]
+			voxel_size: size of voxel in [y, x, z]
+			wavelength: wavelength of probing wave, scalar
+
+		Optional Args [default]:
+			sigma: sigma used in calculating transmittance function (exp(1i * sigma * object)), scalar [None]
+			binning_factor: bins the number of slices together to save computation (loses accuracy), scalar [1]
+			pad_size: padding reconstruction from measurements in [dy,dx], final size will be measurement.shape + 2*[dy, dx], [0, 0]
+		"""
+		super(PhaseContrastScattering, self).__init__()
+		self.binning_factor = binning_factor
+		self.shape          = shape
+		self.pad_size       = pad_size
+		self.voxel_size     = voxel_size
+		self.wavelength     = wavelength
+		
+		#forward propagation
+		self.shape_prop          = self.shape.copy()
+		self.shape_prop[2]     //= self.binning_factor
+		self.voxel_size_prop     = self.voxel_size.copy()
+		self.voxel_size_prop[2] *= self.binning_factor
+		self._propagation = MultislicePropagation(self.shape_prop, self.voxel_size_prop, self.wavelength, **kwargs)
+		
+		self.sigma          = sigma
+		if self.sigma is None:
+			self.sigma = (2 * np.pi / self.wavelength) * self.voxel_size_prop[2]
+
+		#filter with aperture
+		self._pupil       = Pupil(self.shape[0:2], self.voxel_size[0], self.wavelength, **kwargs)
+
+	def forward(self, obj, defocus_list):
+		#bin object
+		obj = bin_obj(obj, self.binning_factor)
+		#raise to transmittance
+		obj = complex_exp(complex_mul(op._j, self.sigma * obj))
+		#forward propagation & defocus
+		field = self._propagation(obj)
+		#pupil
+		field = self._pupil(field)
+		#defocus		
+		field = field_defocus(field, self._propagation.propagate.kernel_phase, defocus_list)
+		#crop
+		field = F.pad(field, (0,0,0,0, \
+							  -1 * self.pad_size[1], -1 * self.pad_size[1], \
+							  -1 * self.pad_size[0], -1 * self.pad_size[0]))
+		#compute amplitude
+		amplitudes = complex_abs(field)
+
+		return amplitudes
+
+
+
+
 
 
 

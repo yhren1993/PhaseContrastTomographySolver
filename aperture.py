@@ -52,6 +52,9 @@ def generate_angular_spectrum_kernel(shape, pixel_size, \
     return op.multiply_complex(op._j, prop_kernel)
 
 class Pupil(nn.Module):
+    """
+    Class for applying pupil in forward model computation
+    """
     def __init__(self, shape, pixel_size, wavelength, \
                  numerical_aperture = 1.0, pupil = None, \
                  dtype=torch.float32, device=torch.device('cuda'), **kwargs):
