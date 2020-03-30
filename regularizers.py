@@ -272,12 +272,12 @@ class TotalVariationAnisotropic(TotalVariation):
 	def _compute_prox_real(self, x, projector):
 		assert len(x.shape) == 3
 		# parallel proximal method
-		return (1/6)*(self._computeProxRealSingleAxis(x) + \
+		return projector((1/6)*(self._computeProxRealSingleAxis(x) + \
 					self._computeProxRealSingleAxis(x,shift=True) + \
 					self._computeProxRealSingleAxis(x.permute(1,0,2)).permute(1,0,2) + \
 					self._computeProxRealSingleAxis(x.permute(1,0,2),shift=True).permute(1,0,2) + \
 					self._computeProxRealSingleAxis(x.permute(2,0,1)).permute(1,2,0) + \
-					self._computeProxRealSingleAxis(x.permute(2,0,1),shift=True).permute(1,2,0))
+					self._computeProxRealSingleAxis(x.permute(2,0,1),shift=True).permute(1,2,0)))
 
 	def _computeProxRealSingleAxis(self,x,shift=False):
 		self.Np = x.shape

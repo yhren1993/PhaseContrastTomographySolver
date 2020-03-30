@@ -23,7 +23,6 @@ from aperture import Pupil
 from propagation import SingleSlicePropagation, Defocus, MultislicePropagation
 from regularizers import Regularizer
 
-import contexttimer
 import scipy.io as sio
 import numpy as np
 
@@ -119,58 +118,59 @@ class TorchTomographySolver:
 		for itr_idx in range(self.optim_max_itr):
 			running_cost = 0.0
 			for data_idx, data in enumerate(self.dataloader, 0):
-				with contexttimer.Timer() as timer:
-		    		
-		    		#parse data
-					if not forward_only:
-						amplitudes, rotation_angle, defocus_list = data
-						amplitudes = torch.squeeze(amplitudes)
+	    		#parse data
+				if not forward_only:
+					amplitudes, rotation_angle, defocus_list = data
+					amplitudes = torch.squeeze(amplitudes)
+					if len(amplitudes.shape) < 3:
+						amplitudes = amplitudes.unsqueeze(-1)
 
-					else:
-						rotation_angle, defocus_list = data
-					rotation_angle = rotation_angle.item()
-					defocus_list = torch.squeeze(defocus_list)						
-					
-					#rotate object
-					if data_idx == 0:
+				else:
+					rotation_angle, defocus_list = data[-2:]
+				
+				defocus_list = torch.flatten(defocus_list)
+				rotation_angle = rotation_angle.item()
+				
+				#rotate object
+				if data_idx == 0:
+					self.obj = self.rotation_obj.forward(self.obj, rotation_angle)
+				else:
+					if abs(rotation_angle - previous_angle) > 90:
+						self.obj = self.rotation_obj.forward(self.obj, -1 * previous_angle)
 						self.obj = self.rotation_obj.forward(self.obj, rotation_angle)
 					else:
-						if abs(rotation_angle - previous_angle) > 90:
-							self.obj = self.rotation_obj.forward(self.obj, -1 * previous_angle)
-							self.obj = self.rotation_obj.forward(self.obj, rotation_angle)
-						else:
-							self.obj = self.rotation_obj.forward(self.obj, rotation_angle - previous_angle)					
-					if not forward_only:
-						#define optimizer
-						self.obj.requires_grad_()
-						optimizer = optim.SGD([self.obj], lr=self.optim_step_size)
-					
-					#forward scattering
-					estimated_amplitudes = self.tomography_obj(self.obj, defocus_list)
-					if not forward_only:
-			    		#compute cost
-						cost = self.cost_function(estimated_amplitudes, amplitudes.cuda())
-						running_cost += cost.item()
+						self.obj = self.rotation_obj.forward(self.obj, rotation_angle - previous_angle)					
+				if not forward_only:
+					#define optimizer
+					self.obj.requires_grad_()
+					optimizer = optim.SGD([self.obj], lr=self.optim_step_size)
+				
+				#forward scattering
+				estimated_amplitudes = self.tomography_obj(self.obj, defocus_list)
+				if not forward_only:
+		    		#compute cost
+					cost = self.cost_function(estimated_amplitudes, amplitudes.cuda())
+					running_cost += cost.item()
 
-						#backpropagation
-						cost.backward()
+					#backpropagation
+					cost.backward()
 
-						#update object
-						optimizer.step()
-						optimizer.zero_grad()
-						del cost
-					else:
-						#store measurement
-						amplitude_list.append(estimated_amplitudes.cpu().detach())
-					del estimated_amplitudes
-					self.obj.requires_grad = False
-					previous_angle = rotation_angle
-					
-					#rotate object back
-					if data_idx == (self.dataset.__len__() - 1):
-						previous_angle = 0.0
-						self.obj = self.rotation_obj.forward(self.obj, -1.0*rotation_angle)
-					print("Rotation {:03d}/{:03d}.".format(data_idx+1, self.dataset.__len__()), end="\r")
+					#update object
+					optimizer.step()
+					optimizer.zero_grad()
+					del cost
+				else:
+					#store measurement
+					amplitude_list.append(estimated_amplitudes.cpu().detach())
+				del estimated_amplitudes
+				self.obj.requires_grad = False
+				previous_angle = rotation_angle
+				
+				#rotate object back
+				if data_idx == (self.dataset.__len__() - 1):
+					previous_angle = 0.0
+					self.obj = self.rotation_obj.forward(self.obj, -1.0*rotation_angle)
+				print("Rotation {:03d}/{:03d}.".format(data_idx+1, self.dataset.__len__()), end="\r")
 			
 			#apply regularization
 			torch.cuda.empty_cache()
@@ -203,6 +203,11 @@ class AETDataset(Dataset):
         #X x Y x #defocus
 		if self.amplitude_measurements is not None:
 			return self.amplitude_measurements[...,idx], self.tilt_angles[idx], self.defocus_stack
+			# #TEMPPPP for clay ONLY
+			# if self.tilt_angles[idx] > 0.0:
+			# 	return self.amplitude_measurements[...,idx], self.tilt_angles[idx], self.defocus_stack
+			# else:
+			# 	return self.amplitude_measurements[...,0,idx], self.tilt_angles[idx], self.defocus_stack[0:1]
 		else:
 			return self.tilt_angles[idx], self.defocus_stack
 

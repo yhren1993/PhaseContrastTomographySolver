@@ -40,13 +40,11 @@ def generate_angular_spectrum_kernel(shape, pixel_size, \
     """
     assert len(shape) == 2, "pupil should be two dimensional!"
     ky_lin, kx_lin = util.generate_grid_2d(shape, pixel_size, flag_fourier=True, dtype=dtype, device=device)
-    
     if flag_band_limited:
         assert numerical_aperture is not None, "need to provide numerical aperture of the system!"
         pupil_crop    = op.r2c(generate_hard_pupil(shape, pixel_size, numerical_aperture, wavelength))
     else: 
         pupil_crop    = 1.0
-
     prop_kernel = 2.0 * np.pi * pupil_crop * \
                   op.exponentiate(op.r2c((refractive_index/wavelength)**2 - kx_lin**2 - ky_lin**2), 0.5)
     return op.multiply_complex(op._j, prop_kernel)
