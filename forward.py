@@ -6,7 +6,7 @@ David Ren      david.ren@berkeley.edu
 September 16, 2019
 """
 
-
+import sys
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -31,7 +31,6 @@ complex_exp   = op.ComplexExp.apply
 complex_mul   = op.ComplexMul.apply
 complex_abs   = op.ComplexAbs.apply
 field_defocus = Defocus.apply
-
 class TorchTomographySolver:
 	def __init__(self, **kwargs):
 		"""
@@ -116,6 +115,7 @@ class TorchTomographySolver:
 		
 		#begin iteration
 		for itr_idx in range(self.optim_max_itr):
+			sys.stdout.flush()
 			running_cost = 0.0
 			for data_idx, data in enumerate(self.dataloader, 0):
 	    		#parse data
@@ -180,6 +180,7 @@ class TorchTomographySolver:
 				callback(self.obj.cpu().detach(), error)
 			if forward_only and itr_idx == 0:
 				return amplitude_list
+			print("Iteration {:03d}/{:03d}. Error: {:03f}".format(itr_idx+1, self.optim_max_itr, np.log10(running_cost)))
 
 		return self.obj.cpu().detach(), error
 
