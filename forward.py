@@ -207,6 +207,7 @@ class TorchTomographySolver:
 				print("Rotation {:03d}/{:03d}.".format(data_idx+1, self.dataset.__len__()), end="\r")
 			
 			#apply regularization
+			amplitudes = None
 			torch.cuda.empty_cache()
 			self.obj = self.regularizer_obj.apply(self.obj)
 			error.append(running_cost)

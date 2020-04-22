@@ -8,7 +8,6 @@ October 7, 2019
 
 import operators as op
 import numpy as np
-import contexttimer
 
 import torch
 import torch.nn as nn

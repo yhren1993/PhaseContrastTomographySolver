@@ -5,7 +5,6 @@ David Ren      david.ren@berkeley.edu
 
 September 16, 2019
 """
-import contexttimer
 import torch
 import torch.nn as nn
 import operators as op
@@ -88,4 +87,5 @@ class SingleSlicePropagation(nn.Module):
         kernel = op.exp(abs(propagation_distance) * self.kernel_phase)
         kernel = kernel if propagation_distance > 0. else op.conj(kernel)
         field_out = op.convolve_kernel(field_in, kernel, n_dim=2, flag_inplace=False)
-        return field_out        
+        return field_out
+ 
