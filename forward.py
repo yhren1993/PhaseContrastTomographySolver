@@ -25,7 +25,7 @@ from regularizers import Regularizer
 
 import scipy.io as sio
 import numpy as np
-
+torch.autograd.set_detect_anomaly(True)
 bin_obj       = utilities.BinObject.apply
 complex_exp   = op.ComplexExp.apply
 complex_mul   = op.ComplexMul.apply
@@ -41,7 +41,7 @@ class TorchTomographySolver:
 			wavelength: wavelength of probing wave, scalar
 			sigma: sigma used in calculating transmittance function (exp(1i * sigma * object)), scalar
 			tilt_angles: an array of sample rotation angles
-			defocus_stack: an array of defocus values
+			defocus_list: an array of defocus values
 
 		Optional Args [default]
 			amplitude_measurements: measurements for reconstruction, not needed for forward evaluation of the model only [None]
@@ -55,6 +55,11 @@ class TorchTomographySolver:
 			maxitr: maximum number of iterations [100]
 			step_size: step_size for each gradient update [0.1]
 			momentum: [0.0 NOTIMPLEMENTED]
+
+			-- Shift alignment parameters -- 
+			shift_align: whether to turn on alignment, boolean, [False]
+			sa_method: shift alignment method, can be "gradient" or "correlation", string, ["gradient"]
+			sa_step_size: step_size of shift parameters, float, [0.1]
 
 			-- regularizer parameters --
 			regularizer_total_variation: boolean [False]
@@ -81,7 +86,13 @@ class TorchTomographySolver:
 		self.optim_step_size     = kwargs.get("step_size",            0.1)
 		self.optim_momentum      = kwargs.get("momentum",             0.0)
 
+		self.shift_align         = kwargs.get("shift_align",          False)
+		self.sa_method           = kwargs.get("sa_method",            "gradient")
+		self.sa_step_size        = kwargs.get("sa_step_size",         0.1)
+
 		self.dataset      	     = AETDataset(**kwargs)
+		self.num_defocus	     = len(self.dataset.defocus_list)
+		self.num_rotation        = len(self.dataset.tilt_angles)
 		self.tomography_obj      = PhaseContrastScattering(**kwargs)
 		self.regularizer_obj     = Regularizer(**kwargs)
 		self.rotation_obj	     = utilities.ImageRotation(self.shape, axis = 0)
@@ -113,6 +124,13 @@ class TorchTomographySolver:
 			if len(self.obj.shape) == 3:
 				self.obj = op.r2c(self.obj)
 		
+		#initialize shift parameters
+		self.yx_shifts = None
+		if self.shift_align:
+			if self.sa_method == "gradient":
+				self.yx_shifts = torch.zeros((2, self.num_defocus, self.num_rotation))
+
+
 		#begin iteration
 		for itr_idx in range(self.optim_max_itr):
 			sys.stdout.flush()
@@ -120,17 +138,22 @@ class TorchTomographySolver:
 			for data_idx, data in enumerate(self.dataloader, 0):
 	    		#parse data
 				if not forward_only:
-					amplitudes, rotation_angle, defocus_list = data
+					amplitudes, rotation_angle, defocus_list, rotation_idx = data
 					amplitudes = torch.squeeze(amplitudes)
 					if len(amplitudes.shape) < 3:
 						amplitudes = amplitudes.unsqueeze(-1)
 
 				else:
-					rotation_angle, defocus_list = data[-2:]
+					rotation_angle, defocus_list, rotation_idx = data[-2:]
 				
+				#prepare tilt specific parameters
 				defocus_list = torch.flatten(defocus_list)
 				rotation_angle = rotation_angle.item()
-				
+				yx_shift = None
+				if self.shift_align and self.sa_method == "gradient":
+					yx_shift = self.yx_shifts[:,:,rotation_idx]
+					yx_shift = yx_shift.cuda()
+					yx_shift.requires_grad_()
 				#rotate object
 				if data_idx == 0:
 					self.obj = self.rotation_obj.forward(self.obj, rotation_angle)
@@ -143,10 +166,18 @@ class TorchTomographySolver:
 				if not forward_only:
 					#define optimizer
 					self.obj.requires_grad_()
-					optimizer = optim.SGD([self.obj], lr=self.optim_step_size)
+					if self.shift_align and self.sa_method == "gradient":
+						optimizer = optim.SGD([
+									                {'params': self.obj, 'lr': self.optim_step_size},
+									                {'params': yx_shift, 'lr': self.sa_step_size}
+											  ])
+					else:
+						optimizer = optim.SGD([self.obj], lr=self.optim_step_size)
 				
 				#forward scattering
-				estimated_amplitudes = self.tomography_obj(self.obj, defocus_list)
+				estimated_amplitudes = self.tomography_obj(self.obj, defocus_list, yx_shift)
+				#TODO: Add correlation based shift alignment code HERE
+				#Should return yx_shift, which is a torch.tensor object
 				if not forward_only:
 		    		#compute cost
 					cost = self.cost_function(estimated_amplitudes, amplitudes.cuda())
@@ -164,6 +195,9 @@ class TorchTomographySolver:
 					amplitude_list.append(estimated_amplitudes.cpu().detach())
 				del estimated_amplitudes
 				self.obj.requires_grad = False
+				if self.shift_align:
+					yx_shift.requires_grad = False
+					self.yx_shifts[:,:,rotation_idx] = yx_shift[:].cpu()
 				previous_angle = rotation_angle
 				
 				#rotate object back
@@ -185,7 +219,7 @@ class TorchTomographySolver:
 		return self.obj.cpu().detach(), error
 
 class AETDataset(Dataset):
-	def __init__(self, amplitude_measurements=None, tilt_angles=None, defocus_stack=None, **kwargs):
+	def __init__(self, amplitude_measurements=None, tilt_angles=None, defocus_list=None, **kwargs):
 		"""
 		Args:
 		    transform (callable, optional): Optional transform to be applied
@@ -195,7 +229,7 @@ class AETDataset(Dataset):
 		if self.amplitude_measurements is not None:
 			self.amplitude_measurements = amplitude_measurements.astype("float32")
 		self.tilt_angles = tilt_angles * 1.0
-		self.defocus_stack = defocus_stack * 1.0
+		self.defocus_list = defocus_list * 1.0
 
 	def __len__(self):
 		return self.tilt_angles.shape[0]
@@ -203,14 +237,9 @@ class AETDataset(Dataset):
 	def __getitem__(self, idx):
         #X x Y x #defocus
 		if self.amplitude_measurements is not None:
-			return self.amplitude_measurements[...,idx], self.tilt_angles[idx], self.defocus_stack
-			# #TEMPPPP for clay ONLY
-			# if self.tilt_angles[idx] > 0.0:
-			# 	return self.amplitude_measurements[...,idx], self.tilt_angles[idx], self.defocus_stack
-			# else:
-			# 	return self.amplitude_measurements[...,0,idx], self.tilt_angles[idx], self.defocus_stack[0:1]
+			return self.amplitude_measurements[...,idx], self.tilt_angles[idx], self.defocus_list, idx
 		else:
-			return self.tilt_angles[idx], self.defocus_stack
+			return self.tilt_angles[idx], self.defocus_list, idx
 
 
 class PhaseContrastScattering(nn.Module):
@@ -249,9 +278,12 @@ class PhaseContrastScattering(nn.Module):
 			self.sigma = (2 * np.pi / self.wavelength) * self.voxel_size_prop[2]
 
 		#filter with aperture
-		self._pupil       = Pupil(self.shape[0:2], self.voxel_size[0], self.wavelength, **kwargs)
+		self._pupil = Pupil(self.shape[0:2], self.voxel_size[0], self.wavelength, **kwargs)
 
-	def forward(self, obj, defocus_list):
+		#shift correction
+		self._shift = utilities.ImageShiftGradientBased(self.shape[0:2], self.voxel_size[0], **kwargs)
+
+	def forward(self, obj, defocus_list, yx_shift=None):
 		#bin object
 		obj = bin_obj(obj, self.binning_factor)
 		#raise to transmittance
@@ -262,6 +294,8 @@ class PhaseContrastScattering(nn.Module):
 		field = self._pupil(field)
 		#defocus		
 		field = field_defocus(field, self._propagation.propagate.kernel_phase, defocus_list)
+		#shift
+		field = self._shift(field, yx_shift)
 		#crop
 		field = F.pad(field, (0,0,0,0, \
 							  -1 * self.pad_size[1], -1 * self.pad_size[1], \

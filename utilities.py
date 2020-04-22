@@ -312,6 +312,32 @@ class ImageRotation:
                 obj = obj.cpu()
             return obj
 
+class ImageShiftGradientBased(nn.Module):
+    """
+    A class that solves for shift between measurement and prediction. This uses pytorch autograd, and is gradient based.
+    """
+    def __init__(self, shape, pixel_size, dtype=torch.float32, device=torch.device('cuda'),   **kwargs):
+        super(ImageShiftGradientBased, self).__init__()
+        self.ky_lin, self.kx_lin = generate_grid_2d(shape, pixel_size, flag_fourier=True, dtype=dtype, device=device)
+
+    def forward(self, field, shift=None):   
+        """
+        Input parameters:
+            - field: refocused field, before cropping
+            - shift: estimated shift [y_shift, x_shift], default None (shift estimation off)
+        """
+        if shift is None:
+            return field
+        field_out = field.clone()
+        for img_idx in range(field.shape[2]):
+            y_shift = shift[0,img_idx]
+            x_shift = shift[1,img_idx]
+            kernel  = op.exp(op.multiply_complex(op._j, op.r2c(2 * np.pi * (self.kx_lin * x_shift + self.ky_lin * y_shift))))
+            field_out[...,img_idx,:] = op.convolve_kernel(field[...,img_idx,:], kernel, n_dim=2)
+        return field_out
+
+
+
 class ImageShift:
     """
     A class that solves for shift between measurement and prediction. Several possible methods are implemented:

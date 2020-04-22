@@ -13,8 +13,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-complex_mul = op.ComplexMul.apply
-
 def generate_hard_pupil(shape, pixel_size, numerical_aperture, wavelength, \
                    dtype=torch.float32, device=torch.device('cuda')):
     """
@@ -66,7 +64,5 @@ class Pupil(nn.Module):
     def get_pupil(self):
         return self.pupil.cpu()
     def forward(self, field):
-        field = torch.fft(field, signal_ndim=2)
-        field = complex_mul(field, self.pupil)
-        field = torch.ifft(field, signal_ndim=2)
-        return field
+        field_out = op.convolve_kernel(field, self.pupil, n_dim=2, flag_inplace=False)
+        return field_out
