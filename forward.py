@@ -25,7 +25,6 @@ from regularizers import Regularizer
 
 import scipy.io as sio
 import numpy as np
-torch.autograd.set_detect_anomaly(True)
 bin_obj       = utilities.BinObject.apply
 complex_exp   = op.ComplexExp.apply
 complex_mul   = op.ComplexMul.apply
