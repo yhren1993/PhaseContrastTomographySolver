@@ -19,7 +19,7 @@ from torch.utils.data import DataLoader
 import torch.optim as optim
 import operators as op
 import utilities
-from shift import ImageShiftGradientBased, ImageShiftCorrelationBased
+import shift
 from aperture import Pupil
 from propagation import SingleSlicePropagation, Defocus, MultislicePropagation
 from regularizers import Regularizer
@@ -58,7 +58,7 @@ class TorchTomographySolver:
 
 			-- Shift alignment parameters -- 
 			shift_align: whether to turn on alignment, boolean, [False]
-			sa_method: shift alignment method, can be "gradient" or "correlation", string, ["gradient"]
+			sa_method: shift alignment method, can be "gradient", "hybrid_correlation", "cross_correlation", or "phase_correlation", string, ["gradient"]
 			sa_step_size: step_size of shift parameters, float, [0.1]
 
 			-- regularizer parameters --
@@ -89,10 +89,12 @@ class TorchTomographySolver:
 		self.shift_align         = kwargs.get("shift_align",          False)
 		self.sa_method           = kwargs.get("sa_method",            "gradient")
 		self.sa_step_size        = kwargs.get("sa_step_size",         0.1)
-
-		if self.shift_align and self.sa_method == "correlation":
-			self.shift_obj		 = ImageShiftCorrelationBased(kwargs["amplitude_measurements"].shape[0:2], \
-															  upsample_factor = 10, device=torch.device('cpu'))
+		if not shift.is_valid_method(self.sa_method):
+			raise ValueError('Shift alignment method not valid.')
+		if self.shift_align and shift.is_correlation_method(self.sa_method):
+			self.shift_obj		 = shift.ImageShiftCorrelationBased(kwargs["amplitude_measurements"].shape[0:2], \
+										    					    upsample_factor = 10, method = self.sa_method, \
+											 					    device=torch.device('cpu'))
 
 		self.dataset      	     = AETDataset(**kwargs)
 		self.num_defocus	     = len(self.dataset.defocus_list)
@@ -133,7 +135,7 @@ class TorchTomographySolver:
 		if self.shift_align:
 			self.yx_shifts = torch.zeros((2, self.num_defocus, self.num_rotation))
 
-		#correlation shift doesn't start until 10th iteration
+		#shift doesn't start until 10th iteration
 		flag_shift_align = self.shift_align
 		self.shift_align = False
 		#begin iteration
@@ -184,7 +186,7 @@ class TorchTomographySolver:
 				estimated_amplitudes = self.tomography_obj(self.obj, defocus_list, yx_shift)
 
 				#Correlation based shift estimation
-				if self.shift_align and self.sa_method == "correlation":
+				if self.shift_align and shift.is_correlation_method(self.sa_method):
 					amplitudes, yx_shift, _ = self.shift_obj.estimate(estimated_amplitudes, amplitudes)
 					yx_shift = yx_shift.unsqueeze(-1)
 				if not forward_only:
@@ -291,7 +293,7 @@ class PhaseContrastScattering(nn.Module):
 		self._pupil = Pupil(self.shape[0:2], self.voxel_size[0], self.wavelength, **kwargs)
 
 		#shift correction
-		self._shift = ImageShiftGradientBased(self.shape[0:2], **kwargs)
+		self._shift = shift.ImageShiftGradientBased(self.shape[0:2], **kwargs)
 
 	def forward(self, obj, defocus_list, yx_shift=None):
 		#bin object

@@ -17,6 +17,22 @@ import torch.nn as nn
 import numpy as np
 import numpy.fft as fft
 
+possible_methods = [
+                    "gradient",\
+                    "phase_correlation",\
+                    "cross_correlation",\
+                    "hybrid_correlation"
+                   ]
+correlation_methods = [
+                    "phase_correlation",\
+                    "cross_correlation",\
+                    "hybrid_correlation"
+                   ]                    
+def is_correlation_method(method):
+    return method in correlation_methods
+
+def is_valid_method(method):
+    return method in possible_methods
 
 class ImageShiftCorrelationBased():
     """
@@ -27,10 +43,11 @@ class ImageShiftCorrelationBased():
         - pixel_size: pixel size of the image
         - upsample_factor: precision of shift algorithm, to 1/upsample_factor accuracy.
     """    
-    def __init__(self, shape, upsample_factor = 10, dtype=torch.float32, device=torch.device('cuda')):
+    def __init__(self, shape, upsample_factor=10, method="cross_correlation", dtype=torch.float32, device=torch.device('cuda')):
         pixel_size = 1.0
         self.ky_lin, self.kx_lin = util.generate_grid_2d(shape, pixel_size, flag_fourier=True, dtype=dtype, device=device)
         self.upsample_factor = upsample_factor
+        self.method = method
     def _upsampled_dft(self, data, upsampled_region_size,
                        upsample_factor=1, axis_offsets=None):
         """
@@ -115,8 +132,8 @@ class ImageShiftCorrelationBased():
         return np.sqrt(np.abs(error))
 
 
-    def phase_cross_correlation(self, reference_image, moving_image, upsample_factor=1,
-                                space="real", return_error=True):
+    def _cross_correlation(self, reference_image, moving_image, upsample_factor=1,
+                          method = "cross_correlation", space="real", return_error=True):
         """Efficient subpixel image translation registration by cross-correlation.
 
         This code gives the same precision as the FFT upsampled cross-correlation
@@ -137,6 +154,7 @@ class ImageShiftCorrelationBased():
             ``1 / upsample_factor`` of a pixel. For example
             ``upsample_factor == 20`` means the images will be registered
             within 1/20th of a pixel. Default is 1 (no upsampling)
+        method: string, one of "cross_correlation", "phase_correlation", or "hybrid_correlation"
         space : string, one of "real" or "fourier", optional
             Defines how the algorithm interprets input data. "real" means data
             will be FFT'd to compute the correlation, while "fourier" data will
@@ -180,11 +198,16 @@ class ImageShiftCorrelationBased():
             src_freq = fft.fftn(reference_image)
             target_freq = fft.fftn(moving_image)
         else:
-            raise ValueError('space argument must be "real" of "fourier"')
-
+            raise ValueError('space argument must be "real" or "fourier"')
         # Whole-pixel shift - Compute cross-correlation by an IFFT
         shape = src_freq.shape
         image_product = src_freq * target_freq.conj()
+        if method == "phase_correlation":
+            image_product = np.exp(1.0j*np.angle(image_product))
+        elif method == "hybrid_correlation":
+            image_product = np.sqrt(np.abs(image_product))*np.exp(1.0j*np.angle(image_product))
+        else:
+            raise ValueError('method argument not valid.')
         cross_correlation = fft.ifftn(image_product)
 
         # Locate maximum
@@ -277,9 +300,10 @@ class ImageShiftCorrelationBased():
         
         #For each image, estimate the shift error
         for img_idx in range(measured_np.shape[2]):
-            shift, err = self.phase_cross_correlation(predicted_np[...,img_idx], \
-                                                      measured_np[...,img_idx], \
-                                                      upsample_factor=self.upsample_factor)
+            shift, err = self._cross_correlation(predicted_np[...,img_idx], \
+                                                 measured_np[...,img_idx], \
+                                                 method = self.method, \
+                                                 upsample_factor=self.upsample_factor)
             shift_list[:,img_idx] = shift.astype("float32")
             err_list.append(err)
         
