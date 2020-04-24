@@ -5,7 +5,7 @@ David Ren      david.ren@berkeley.edu
 
 October 7, 2019
 """
-
+  
 import operators as op
 import numpy as np
 
