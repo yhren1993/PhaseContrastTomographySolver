@@ -19,6 +19,7 @@ from torch.utils.data import DataLoader
 import torch.optim as optim
 import operators as op
 import utilities
+from shift import ImageShiftGradientBased, ImageShiftCorrelationBased
 from aperture import Pupil
 from propagation import SingleSlicePropagation, Defocus, MultislicePropagation
 from regularizers import Regularizer
@@ -89,6 +90,10 @@ class TorchTomographySolver:
 		self.sa_method           = kwargs.get("sa_method",            "gradient")
 		self.sa_step_size        = kwargs.get("sa_step_size",         0.1)
 
+		if self.shift_align and self.sa_method == "correlation":
+			self.shift_obj		 = ImageShiftCorrelationBased(kwargs["amplitude_measurements"].shape[0:2], \
+															  upsample_factor = 10, device=torch.device('cpu'))
+
 		self.dataset      	     = AETDataset(**kwargs)
 		self.num_defocus	     = len(self.dataset.defocus_list)
 		self.num_rotation        = len(self.dataset.tilt_angles)
@@ -126,14 +131,17 @@ class TorchTomographySolver:
 		#initialize shift parameters
 		self.yx_shifts = None
 		if self.shift_align:
-			if self.sa_method == "gradient":
-				self.yx_shifts = torch.zeros((2, self.num_defocus, self.num_rotation))
+			self.yx_shifts = torch.zeros((2, self.num_defocus, self.num_rotation))
 
-
+		#correlation shift doesn't start until 10th iteration
+		flag_shift_align = self.shift_align
+		self.shift_align = False
 		#begin iteration
 		for itr_idx in range(self.optim_max_itr):
 			sys.stdout.flush()
 			running_cost = 0.0
+			if itr_idx >= 10:
+				self.shift_align = flag_shift_align
 			for data_idx, data in enumerate(self.dataloader, 0):
 	    		#parse data
 				if not forward_only:
@@ -144,7 +152,6 @@ class TorchTomographySolver:
 
 				else:
 					rotation_angle, defocus_list, rotation_idx = data[-2:]
-				
 				#prepare tilt specific parameters
 				defocus_list = torch.flatten(defocus_list)
 				rotation_angle = rotation_angle.item()
@@ -175,8 +182,11 @@ class TorchTomographySolver:
 				
 				#forward scattering
 				estimated_amplitudes = self.tomography_obj(self.obj, defocus_list, yx_shift)
-				#TODO: Add correlation based shift alignment code HERE
-				#Should return yx_shift, which is a torch.tensor object
+
+				#Correlation based shift estimation
+				if self.shift_align and self.sa_method == "correlation":
+					amplitudes, yx_shift, _ = self.shift_obj.estimate(estimated_amplitudes, amplitudes)
+					yx_shift = yx_shift.unsqueeze(-1)
 				if not forward_only:
 		    		#compute cost
 					cost = self.cost_function(estimated_amplitudes, amplitudes.cuda())
@@ -281,7 +291,7 @@ class PhaseContrastScattering(nn.Module):
 		self._pupil = Pupil(self.shape[0:2], self.voxel_size[0], self.wavelength, **kwargs)
 
 		#shift correction
-		self._shift = utilities.ImageShiftGradientBased(self.shape[0:2], self.voxel_size[0], **kwargs)
+		self._shift = ImageShiftGradientBased(self.shape[0:2], **kwargs)
 
 	def forward(self, obj, defocus_list, yx_shift=None):
 		#bin object
