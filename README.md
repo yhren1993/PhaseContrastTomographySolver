@@ -10,7 +10,7 @@ It is a new version of the code in [this repository](https://github.com/yhren199
 4. [FAQ](#FAQ)
 
 ## Usage 
-0. Install required dependencies [PyTorch](https://pytorch.org/get-started/locally/) and [contexttimer](https://pypi.org/project/contexttimer/).
+0. Install required dependencies [PyTorch](https://pytorch.org/get-started/locally/).
 1. Clone this repo: ```git clone https://github.com/yhren1993/PhaseContrastTomographySolver```
 
 ## Updates
