@@ -135,15 +135,10 @@ class TorchTomographySolver:
 		if self.shift_align:
 			self.yx_shifts = torch.zeros((2, self.num_defocus, self.num_rotation))
 
-		#shift doesn't start until 10th iteration
-		flag_shift_align = self.shift_align
-		self.shift_align = False
 		#begin iteration
 		for itr_idx in range(self.optim_max_itr):
 			sys.stdout.flush()
 			running_cost = 0.0
-			if itr_idx >= 10:
-				self.shift_align = flag_shift_align
 			for data_idx, data in enumerate(self.dataloader, 0):
 	    		#parse data
 				if not forward_only:
@@ -153,7 +148,7 @@ class TorchTomographySolver:
 						amplitudes = amplitudes.unsqueeze(-1)
 
 				else:
-					rotation_angle, defocus_list, rotation_idx = data[-2:]
+					rotation_angle, defocus_list, rotation_idx = data[-3:]
 				#prepare tilt specific parameters
 				defocus_list = torch.flatten(defocus_list)
 				rotation_angle = rotation_angle.item()
