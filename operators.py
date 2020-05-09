@@ -75,39 +75,39 @@ def abs(complex_tensor):
     output         = ((complex_tensor**2).sum(-1))**0.5
     return output    
 
-def convolve_kernel(input, kernel, n_dim=1, flag_inplace=True):
+def convolve_kernel(tensor_in, kernel, n_dim=1, flag_inplace=True):
     '''
-    Compute convolution FFT(input) and kernel
+    Compute convolution FFT(tensor_in) and kernel
     Required Args:
-        input: variable 1 in real space
+        tensor_in: variable 1 in real space
         kernel: variable 2 in reciprocal space
 
     Optional Args [default]
         n_dim: number of dimensions to compute convolution [1]
-        flag_inplace: Whether or not compute convolution inplace, result saved in 'input' [True]
+        flag_inplace: Whether or not compute convolution inplace, result saved in 'tensor_in' [True]
     '''
     if flag_inplace:
-        input = torch.fft(input, signal_ndim=n_dim)
-        input = multiply_complex(input, kernel)
-        input = torch.ifft(input,signal_ndim=n_dim)
-        return input
+        tensor_in = torch.fft(tensor_in, signal_ndim=n_dim)
+        tensor_in = multiply_complex(tensor_in, kernel)
+        tensor_in = torch.ifft(tensor_in,signal_ndim=n_dim)
+        return tensor_in
     else:
-        output = torch.fft(input, signal_ndim=n_dim)
+        output = torch.fft(tensor_in, signal_ndim=n_dim)
         output = multiply_complex(output, kernel)
         output = torch.ifft(output,signal_ndim=n_dim)             
         return output
 
-def fftshift(input, axes=None):
+def fftshift(tensor_in, axes=None):
     '''Custom implemented fftshift operator'''
-    ret = input.clone()
+    ret = tensor_in.clone()
     axes= np.atleast_1d(axes)
     for axis in axes:
         ret =  torch.roll(ret, ret.shape[axis]//2, dims=int(axis))
     return ret
 
-def ifftshift(input, axes=None):
+def ifftshift(tensor_in, axes=None):
     '''Custom implemented ifftshift operator'''
-    ret = input.clone()
+    ret = tensor_in.clone()
     axes= np.atleast_1d(axes)
     for axis in axes:
         ret =  torch.roll(ret, -1*int(ret.shape[axis]//2), dims=int(axis))
@@ -168,18 +168,18 @@ class ComplexDiv(torch.autograd.Function):
 class ComplexAbs(torch.autograd.Function):
     '''Absolute value class for autograd'''
     @staticmethod
-    def forward(ctx, input):
-        assert input.shape[-1]==2, "Complex tensor should have real and imaginary parts."
-        output         = ((input**2).sum(-1))**0.5
+    def forward(ctx, tensor_in):
+        assert tensor_in.shape[-1]==2, "Complex tensor should have real and imaginary parts."
+        output         = ((tensor_in**2).sum(-1))**0.5
 
-        ctx.save_for_backward(input)
+        ctx.save_for_backward(tensor_in)
         return output
 
     @staticmethod
     def backward(ctx, grad_output):
-        input,         = ctx.saved_tensors
+        tensor_in,         = ctx.saved_tensors
         grad_input     = torch.stack((grad_output, torch.zeros_like(grad_output)), dim=len(grad_output.shape))
-        phase_input    = angle(input)
+        phase_input    = angle(tensor_in)
         phase_input    = torch.stack((torch.cos(phase_input), torch.sin(phase_input)), dim=len(grad_output.shape))
         grad_input     = multiply_complex(phase_input, grad_input)
         return 0.5*grad_input
@@ -187,27 +187,27 @@ class ComplexAbs(torch.autograd.Function):
 class ComplexAbs2(torch.autograd.Function):
     '''Absolute value squared class for autograd'''
     @staticmethod
-    def forward(ctx, input):
-        assert input.shape[-1]==2, "Complex tensor should have real and imaginary parts."
-        output         = multiply_complex(conj(input), input)
+    def forward(ctx, tensor_in):
+        assert tensor_in.shape[-1]==2, "Complex tensor should have real and imaginary parts."
+        output         = multiply_complex(conj(tensor_in), tensor_in)
 
-        ctx.save_for_backward(input)
+        ctx.save_for_backward(tensor_in)
         return output[..., 0]
 
     @staticmethod
     def backward(ctx, grad_output):        
-        input,         = ctx.saved_tensors
+        tensor_in,         = ctx.saved_tensors
         grad_output_c  = torch.stack((grad_output, torch.zeros_like(grad_output)), dim=len(grad_output.shape))
-        grad_input     = multiply_complex(input, grad_output_c)
+        grad_input     = multiply_complex(tensor_in, grad_output_c)
 
         return grad_input
 
 class ComplexExp(torch.autograd.Function):
     '''Complex exponential class for autograd'''
     @staticmethod
-    def forward(ctx, input):
-        assert input.shape[-1]==2, "Complex tensor should have real and imaginary parts."
-        output = exp(input)
+    def forward(ctx, tensor_in):
+        assert tensor_in.shape[-1]==2, "Complex tensor should have real and imaginary parts."
+        output = exp(tensor_in)
 
         ctx.save_for_backward(output)
         return output
