@@ -276,19 +276,21 @@ class TotalVariationAnisotropic(TotalVariation):
 	def _compute_prox_real_single_iteration(self, x, projector):
 		assert len(x.shape) == 3
 		# parallel proximal method
-		return projector((1/6)*(self._computeProxRealSingleAxis(x) + \
+		return projector((1/6)*(self._computeProxRealSingleAxis(x,shift=False) + \
 					   			self._computeProxRealSingleAxis(x,shift=True) + \
-					   			self._computeProxRealSingleAxis(x.permute(1,0,2)).permute(1,0,2) + \
+					   			self._computeProxRealSingleAxis(x.permute(1,0,2),shift=False).permute(1,0,2) + \
 					   			self._computeProxRealSingleAxis(x.permute(1,0,2),shift=True).permute(1,0,2) + \
-					   			self._computeProxRealSingleAxis(x.permute(2,0,1)).permute(1,2,0) + \
+					   			self._computeProxRealSingleAxis(x.permute(2,0,1),shift=False).permute(1,2,0) + \
 					   			self._computeProxRealSingleAxis(x.permute(2,0,1),shift=True).permute(1,2,0)))
 
-	def _computeProxRealSingleAxis(self,x,shift=False):
-		self.Np = x.shape
+	def _computeProxRealSingleAxis(self,x_in,shift=False):
+		self.Np = x_in.shape
 		if np.mod(self.Np[0],2) == 1:
 			raise NotImplementedError('Shape cannot be odd')
 		if shift:
-			x = x.roll(1, dims = 0)
+			x = x_in.roll(1, dims = 0)
+		else:
+			x = x_in.clone()
 		c = torch.from_numpy(np.asarray([1/np.sqrt(2)])).float().to(self.device)
 		z1 = self.softThr(c*(x[1::2,:]-x[0::2,:]))*c
 		x[0::2,:] += x[1::2,:]
