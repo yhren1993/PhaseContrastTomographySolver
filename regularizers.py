@@ -109,11 +109,8 @@ class ProximalOperator():
 		pass	
 	def set_parameter(self):
 		pass
-	def _bound_real_value(self, x, value = 0, flag_project = True):
-		"""If flag is true, only values that are greater than 'value' are preserved"""
-		if flag_project:
-			x[x < value] = 0
-		return x
+	def _bound_real_value(self, x, value = 0):
+		return torch.clamp(x, min=value)
 
 class TotalVariation(ProximalOperator):
 	def __init__(self, **kwargs):
@@ -130,20 +127,20 @@ class TotalVariation(ProximalOperator):
 
 		#real part
 		if kwargs.get("regularizer_positivity_real", False):
-			self.realProjector = lambda x: self._bound_real_value(x, 0, True)
+			self.realProjector = lambda x: self._bound_real_value(x, 0)
 			proximal_name      = "%s+%s" % (proximal_name, "positivity_real")
 		elif kwargs.get("regularizer_negativity_real", False):
-			self.realProjector = lambda x: -1.0 * self._bound_real_value(-1.0 * x, 0, True)
+			self.realProjector = lambda x: -1.0 * self._bound_real_value(-1.0 * x, 0)
 			proximal_name      = "%s+%s" % (proximal_name, "negativity_real")
 		else:
 			self.realProjector = lambda x: x
 
 		#imaginary part
 		if kwargs.get("regularizer_positivity_imag", False):
-			self.imagProjector = lambda x: self._bound_real_value(x, 0, True)
+			self.imagProjector = lambda x: self._bound_real_value(x, 0)
 			proximal_name      = "%s+%s" % (proximal_name, "positivity_imag")
 		elif kwargs.get("regularizer_negativity_imag", False):
-			self.imagProjector = lambda x: -1.0 * self._bound_real_value(-1.0 * x, 0, True)
+			self.imagProjector = lambda x: -1.0 * self._bound_real_value(-1.0 * x, 0)
 			proximal_name      = "%s+%s" % (proximal_name, "negativity_imag")
 		else:
 			self.imagProjector = lambda x: x
@@ -269,20 +266,22 @@ class TotalVariationAnisotropic(TotalVariation):
 	Anisotropic version of TV, meant for 3D only!
 	Saves memory comparing to iterative version of TV
 	"""
+#	def _compute_prox_real(self, x, projector):
+#		for iteration in range(self.maxitr):
+#			x = self._compute_prox_real_single_iteration(x, projector)
+#			torch.cuda.empty_cache()
+#		return x
 	def _compute_prox_real(self, x, projector):
-		for iteration in range(self.maxitr):
-			x = self._compute_prox_real_single_iteration(x, projector)
-		return x
-	def _compute_prox_real_single_iteration(self, x, projector):
 		assert len(x.shape) == 3
 		# parallel proximal method
-		return projector((1/6)*(self._computeProxRealSingleAxis(x) + \
+		for iteration in range(self.maxitr):
+			x = projector((1/6)*(self._computeProxRealSingleAxis(x) + \
 					   			self._computeProxRealSingleAxis(x,shift=True) + \
 					   			self._computeProxRealSingleAxis(x.permute(1,0,2)).permute(1,0,2) + \
 					   			self._computeProxRealSingleAxis(x.permute(1,0,2),shift=True).permute(1,0,2) + \
 					   			self._computeProxRealSingleAxis(x.permute(2,0,1)).permute(1,2,0) + \
 					   			self._computeProxRealSingleAxis(x.permute(2,0,1),shift=True).permute(1,2,0)))
-
+		return x
 	def _computeProxRealSingleAxis(self,x,shift=False):
 		self.Np = x.shape
 		if np.mod(self.Np[0],2) == 1:
@@ -314,8 +313,10 @@ class Positivity(ProximalOperator):
 		return None
 
 	def compute_prox(self, x):
-		x[...,0] = self._bound_real_value(op.real(x), 0, self.real)
-		x[...,1] = self._bound_real_value(op.imag(x), 0, self.imag)
+		if self.real:
+			x[...,0] = self._bound_real_value(op.real(x), 0, self.real)
+		if self.imag:
+			x[...,1] = self._bound_real_value(op.imag(x), 0, self.imag)
 		return x
 
 class Negativity(Positivity):
