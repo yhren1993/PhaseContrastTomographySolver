@@ -17,7 +17,9 @@ from matplotlib.widgets import Slider
 
 MAX_DIM = 512*512*512
 
-def show3DStack(image_3d, axis = 2, cmap = "gray", clim = (0, 1), extent = (0, 1, 0, 1)):
+def show3DStack(image_3d, axis = 2, cmap = "gray", clim = None, extent = (0, 1, 0, 1)):
+    if clim is None:
+        clim = (np.min(image_3d), np.max(image_3d)) 
     if axis == 0:
         image  = lambda index: image_3d[index, :, :]
     elif axis == 1:
