@@ -42,13 +42,12 @@ class Defocus(torch.autograd.Function):
         return grad_output.sum(2), None, None
 
 class MultislicePropagation(nn.Module):
-    def __init__(self, shape, voxel_size, wavelength, refractive_index = 1.0, numerical_aperture=None, dtype=torch.float32, device=torch.device('cuda'),   **kwargs):
+    def __init__(self, shape, voxel_size, wavelength,  numerical_aperture=None, dtype=torch.float32, device=torch.device('cuda'),   **kwargs):
         super(MultislicePropagation, self).__init__()
         self.shape            = shape  
         self.voxel_size       = voxel_size
         self.distance_to_center = (self.shape[2]/2. - 1/2.) * self.voxel_size[2]
-        self.propagate        = SingleSlicePropagation(self.shape[0:2], self.voxel_size[0],  \
-                                                       wavelength, refractive_index, \
+        self.propagate        = SingleSlicePropagation(self.shape[0:2], self.voxel_size[0],  wavelength, \
                                                        numerical_aperture=None, flag_band_limited=False, \
                                                        dtype=dtype, device=device)    
     def forward(self, obj, field_in=None):
@@ -71,13 +70,11 @@ class SingleSlicePropagation(nn.Module):
     '''
     Class for propagation for single slice
     '''
-    def __init__(self, shape, pixel_size, \
-                 wavelength, refractive_index = 1.0, \
+    def __init__(self, shape, pixel_size, wavelength, \
                  numerical_aperture=None,  flag_band_limited=False, \
                  dtype=torch.float32, device=torch.device('cuda')):
         super(SingleSlicePropagation, self).__init__()
-        self.kernel_phase     = generate_angular_spectrum_kernel(shape, pixel_size, \
-                                                                 wavelength, refractive_index, \
+        self.kernel_phase     = generate_angular_spectrum_kernel(shape, pixel_size, wavelength, \
                                                                  numerical_aperture=None,  flag_band_limited=False, \
                                                                  dtype=dtype, device=device)
 

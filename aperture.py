@@ -25,8 +25,7 @@ def generate_hard_pupil(shape, pixel_size, numerical_aperture, wavelength, \
     pupil        = (kx_lin**2 + ky_lin**2 <= pupil_radius**2).type(dtype)
     return op.r2c(pupil)
 
-def generate_angular_spectrum_kernel(shape, pixel_size, \
-                                     wavelength, refractive_index = 1.0, \
+def generate_angular_spectrum_kernel(shape, pixel_size, wavelength, \
                                      numerical_aperture=None,  flag_band_limited=True, \
                                      dtype=torch.float32, device=torch.device('cuda')):
     """
@@ -44,7 +43,7 @@ def generate_angular_spectrum_kernel(shape, pixel_size, \
     else: 
         pupil_crop    = 1.0
     prop_kernel = 2.0 * np.pi * pupil_crop * \
-                  op.exponentiate(op.r2c((refractive_index/wavelength)**2 - kx_lin**2 - ky_lin**2), 0.5)
+                  op.exponentiate(op.r2c((1./wavelength)**2 - kx_lin**2 - ky_lin**2), 0.5)
     return op.multiply_complex(op._j, prop_kernel)
 
 class Pupil(nn.Module):
