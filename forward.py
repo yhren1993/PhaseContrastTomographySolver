@@ -242,6 +242,7 @@ class TorchTomographySolver:
 				return amplitude_list
 			print("Iteration {:03d}/{:03d}. Error: {:03f}".format(itr_idx+1, self.optim_max_itr, np.log10(running_cost)))
 
+		self.defocus_list = self.dataset.get_all_defocus_lists()
 		return self.obj.cpu().detach(), error
 
 class AETDataset(Dataset):
@@ -271,6 +272,10 @@ class AETDataset(Dataset):
 
 	def update_defocus_list(self,defocus_list, idx):
 		self.defocus_list[:,idx] = defocus_list.unsqueeze(-1)
+		return
+
+	def get_all_defocus_lists(self):
+		return self.defocus_list  
 
 
 class PhaseContrastScattering(nn.Module):
