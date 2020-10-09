@@ -30,7 +30,7 @@ bin_obj       = utilities.BinObject.apply
 complex_exp   = op.ComplexExp.apply
 complex_mul   = op.ComplexMul.apply
 complex_abs   = op.ComplexAbs.apply
-field_defocus = Defocus.apply
+#field_defocus = Defocus.apply
 class TorchTomographySolver:
 	def __init__(self, **kwargs):
 		"""
@@ -164,7 +164,6 @@ class TorchTomographySolver:
 					rotation_angle, defocus_list, rotation_idx = data[-3:]
 				#prepare tilt specific parameters
 				defocus_list = torch.flatten(defocus_list).cuda()
-				print(defocus_list)
 				rotation_angle = rotation_angle.item()
 				yx_shift = None
 				if self.shift_align and self.sa_method == "gradient" and itr_idx >= self.sa_start_iteration:
@@ -221,7 +220,7 @@ class TorchTomographySolver:
 					self.yx_shifts[:,:,rotation_idx] = yx_shift[:].cpu()
 				if self.defocus_refine and itr_idx >= self.dr_start_iteration:
 					defocus_list.requires_grad = False
-					self.dataset.update_defocus_list(defocus_list[:].cpu() * 0.0, rotation_idx)
+					self.dataset.update_defocus_list(defocus_list[:].cpu(), rotation_idx)
 
 				previous_angle = rotation_angle
 				
@@ -316,6 +315,10 @@ class PhaseContrastScattering(nn.Module):
 		#filter with aperture
 		self._pupil = Pupil(self.shape[0:2], self.voxel_size[0], self.wavelength, **kwargs)
 
+		
+		#defocus operator
+		self._defocus = Defocus()
+
 		#shift correction
 		self._shift = shift.ImageShiftGradientBased(self.shape[0:2], **kwargs)
 
@@ -329,7 +332,7 @@ class PhaseContrastScattering(nn.Module):
 		#pupil
 		field = self._pupil(field)
 		#defocus		
-		field = field_defocus(field, self._propagation.propagate.kernel_phase, defocus_list)
+		field = self._defocus(field, self._propagation.propagate.kernel_phase, defocus_list)
 		#shift
 		field = self._shift(field, yx_shift)
 		#crop

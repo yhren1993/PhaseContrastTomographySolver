@@ -10,36 +10,21 @@ import torch.nn as nn
 import operators as op
 from aperture import generate_angular_spectrum_kernel
 complex_mul = op.ComplexMul.apply
-
+torch.autograd.set_detect_anomaly(True)
 
 import numpy as np
 
-class Defocus(torch.autograd.Function):
-    @staticmethod
+class Defocus(nn.Module):
     def forward(ctx, field, kernel, defocus_list= [0.0]):
-        ctx.save_for_backward(kernel)
-        ctx.defocus_list = defocus_list
         field = torch.fft(field, signal_ndim=2)
         field = field.unsqueeze(2).repeat(1, 1, len(defocus_list), 1).permute(2,0,1,3)
+        field_out = field.clone()
         for defocus_idx in range(len(defocus_list)):
             kernel_temp = op.exp(abs(defocus_list[defocus_idx]) * kernel)
             kernel_temp = kernel_temp if defocus_list[defocus_idx] > 0. else op.conj(kernel_temp)
-            field[defocus_idx,...] = op.multiply_complex(field[defocus_idx,...], kernel_temp)
-        field = torch.ifft(field, signal_ndim=2).permute(1,2,0,3)
-        return field
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        kernel, = ctx.saved_tensors
-        defocus_list = ctx.defocus_list
-        grad_output = torch.fft(grad_output.permute(2,0,1,3), signal_ndim=2)
-        for defocus_idx in range(len(defocus_list)):
-            kernel_temp = op.exp(abs(defocus_list[defocus_idx]) * kernel)
-            kernel_temp = kernel_temp if defocus_list[defocus_idx] < 0. else op.conj(kernel_temp)
-            grad_output[defocus_idx,...] = op.multiply_complex(grad_output[defocus_idx,...], kernel_temp)
-        grad_output = torch.ifft(grad_output, signal_ndim=2).permute(1,2,0,3)
-        temp_f =  grad_output.sum(2)
-        return grad_output.sum(2), None, None
+            field_out[defocus_idx,...] = op.multiply_complex(field[defocus_idx,...], kernel_temp)
+        field_out = torch.ifft(field_out, signal_ndim=2).permute(1,2,0,3)
+        return field_out
 
 class MultislicePropagation(nn.Module):
     def __init__(self, shape, voxel_size, wavelength,  numerical_aperture=None, dtype=torch.float32, device=torch.device('cuda'),   **kwargs):
