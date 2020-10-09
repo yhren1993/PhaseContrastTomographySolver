@@ -261,7 +261,7 @@ class AETDataset(Dataset):
 			if len(defocus_list.shape) == 1:
 				self.defocus_list = defocus_list.unsqueeze(1).repeat(1, len(self.tilt_angles)) * 1.0
 			elif len(defocus_list.shape) == 2:
-				assert self.defocus_list.shape[2] == len(tilt_angles)
+				assert defocus_list.shape[1] == len(tilt_angles)
 				self.defocus_list = defocus_list * 1.0
 			else:
 				raise ValueError('Invalid defocus_list shape.')
