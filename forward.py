@@ -30,7 +30,7 @@ bin_obj       = utilities.BinObject.apply
 complex_exp   = op.ComplexExp.apply
 complex_mul   = op.ComplexMul.apply
 complex_abs   = op.ComplexAbs.apply
-#field_defocus = Defocus.apply
+
 class TorchTomographySolver:
 	def __init__(self, **kwargs):
 		"""
