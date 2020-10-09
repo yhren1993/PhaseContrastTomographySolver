@@ -110,7 +110,7 @@ class TorchTomographySolver:
 											 					    device=torch.device('cpu'))
 
 		self.dataset      	     = AETDataset(**kwargs)
-		self.num_defocus	     = len(self.dataset.defocus_list)
+		self.num_defocus	     = self.dataset.get_all_defocus_lists().shape[0]
 		self.num_rotation        = len(self.dataset.tilt_angles)
 		self.tomography_obj      = PhaseContrastScattering(**kwargs)
 		self.regularizer_obj     = Regularizer(**kwargs)
@@ -257,7 +257,14 @@ class AETDataset(Dataset):
 		if tilt_angles is not None:
 			self.tilt_angles = tilt_angles * 1.0
 		if defocus_list is not None:
-			self.defocus_list = torch.tensor(defocus_list).unsqueeze(1).repeat(1, len(self.tilt_angles)) * 1.0
+			defocus_list = torch.tensor(defocus_list)
+			if len(defocus_list.shape) == 1:
+				self.defocus_list = defocus_list.unsqueeze(1).repeat(1, len(self.tilt_angles)) * 1.0
+			elif len(defocus_list.shape) == 2:
+				assert self.defocus_list.shape[2] == len(tilt_angles)
+				self.defocus_list = defocus_list * 1.0
+			else:
+				raise ValueError('Invalid defocus_list shape.')
 
 	def __len__(self):
 		return self.tilt_angles.shape[0]
@@ -315,7 +322,6 @@ class PhaseContrastScattering(nn.Module):
 		#filter with aperture
 		self._pupil = Pupil(self.shape[0:2], self.voxel_size[0], self.wavelength, **kwargs)
 
-		
 		#defocus operator
 		self._defocus = Defocus()
 
