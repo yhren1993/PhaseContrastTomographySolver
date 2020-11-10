@@ -146,12 +146,16 @@ class TorchTomographySolver:
 		#initialize shift parameters
 		self.yx_shifts = None
 		if self.shift_align:
+			self.sa_pixel_count = []
+			self.yx_shift_all = []
 			self.yx_shifts = torch.zeros((2, self.num_defocus, self.num_rotation))
 
 		#begin iteration
 		for itr_idx in range(self.optim_max_itr):
 			sys.stdout.flush()
 			running_cost = 0.0
+			if self.shift_align and itr_idx >= self.sa_start_iteration:
+				running_sa_pixel_count  = 0.0
 			for data_idx, data in enumerate(self.dataloader, 0):
 	    		#parse data
 				if not forward_only:
@@ -198,6 +202,7 @@ class TorchTomographySolver:
 				if self.shift_align and shift.is_correlation_method(self.sa_method) and itr_idx >= self.sa_start_iteration:
 					amplitudes, yx_shift, _ = self.shift_obj.estimate(estimated_amplitudes, amplitudes)
 					yx_shift = yx_shift.unsqueeze(-1)
+					self.dataset.update_amplitudes(amplitudes, rotation_idx)
 				if not forward_only:
 		    		#compute cost
 					cost = self.cost_function(estimated_amplitudes, amplitudes.cuda())
@@ -218,6 +223,7 @@ class TorchTomographySolver:
 				if self.shift_align and itr_idx >= self.sa_start_iteration:
 					yx_shift.requires_grad = False
 					self.yx_shifts[:,:,rotation_idx] = yx_shift[:].cpu()
+					running_sa_pixel_count += torch.sum(torch.abs(yx_shift.cpu().flatten()))
 				if self.defocus_refine and itr_idx >= self.dr_start_iteration:
 					defocus_list.requires_grad = False
 					self.dataset.update_defocus_list(defocus_list[:].cpu(), rotation_idx)
@@ -235,8 +241,13 @@ class TorchTomographySolver:
 			torch.cuda.empty_cache()
 			self.obj = self.regularizer_obj.apply(self.obj)
 			error.append(running_cost)
+			if self.shift_align and itr_idx >= self.sa_start_iteration:
+				self.sa_pixel_count.append(running_sa_pixel_count)		
+				self.yx_shift_all.append(np.array(self.yx_shifts).copy())
 			if callback is not None:
 				callback(self.obj.cpu().detach(), error)
+				#TEMPPPPP
+				# callback(self.obj.cpu().detach(), self.sa_pixel_count)
 			if forward_only and itr_idx == 0:
 				return amplitude_list
 			print("Iteration {:03d}/{:03d}. Error: {:03f}".format(itr_idx+1, self.optim_max_itr, np.log10(running_cost)))
@@ -280,8 +291,15 @@ class AETDataset(Dataset):
 		self.defocus_list[:,idx] = defocus_list.unsqueeze(-1)
 		return
 
+	def update_amplitudes(self, amplitudes, idx):
+		self.amplitude_measurements[...,idx] = amplitudes
+		return
+
 	def get_all_defocus_lists(self):
 		return self.defocus_list  
+
+	def get_all_measurements(self):
+		return self.amplitude_measurements
 
 
 class PhaseContrastScattering(nn.Module):
