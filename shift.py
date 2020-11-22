@@ -320,7 +320,7 @@ class ImageShiftCorrelationBased():
 
         #Shift measured image
         measured_np = self._shift_stack_inplace(measured_np, -1. * shift_list)
-        if (abs(shift_list) > 20.0).any():
+        if (abs(shift_list) > 40.0).any():
         	print("Shift too large!", np.max(np.abs(shift_list)))
         	shift_list[:] = 0.0
         return measured_np, torch.tensor(shift_list), torch.tensor(err_list)
