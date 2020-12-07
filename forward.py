@@ -30,6 +30,7 @@ bin_obj       = utilities.BinObject.apply
 complex_exp   = op.ComplexExp.apply
 complex_mul   = op.ComplexMul.apply
 complex_abs   = op.ComplexAbs.apply
+field_defocus = Defocus.apply
 
 class TorchTomographySolver:
 	def __init__(self, **kwargs):
@@ -89,6 +90,8 @@ class TorchTomographySolver:
 		self.optim_max_itr       = kwargs.get("maxitr",               100)
 		self.optim_step_size     = kwargs.get("step_size",            0.1)
 		self.optim_momentum      = kwargs.get("momentum",             0.0)
+
+		self.obj_update_iterations = kwargs.get("obj_update_iterations", np.arange(self.optim_max_itr))
 
 		#parameters for shift alignment
 		self.shift_align         = kwargs.get("shift_align",          False)
@@ -150,10 +153,14 @@ class TorchTomographySolver:
 			self.yx_shift_all = []
 			self.yx_shifts = torch.zeros((2, self.num_defocus, self.num_rotation))
 
+		# TEMPP
+		# defocus_list_grad = torch.zeros((self.num_defocus, self.num_rotation), dtype = torch.float32)
+
 		#begin iteration
 		for itr_idx in range(self.optim_max_itr):
 			sys.stdout.flush()
 			running_cost = 0.0
+			defocus_list_grad[:] = 0.0
 			if self.shift_align and itr_idx >= self.sa_start_iteration:
 				running_sa_pixel_count  = 0.0
 			for data_idx, data in enumerate(self.dataloader, 0):
@@ -183,12 +190,15 @@ class TorchTomographySolver:
 					if abs(rotation_angle - previous_angle) > 90:
 						self.obj = self.rotation_obj.forward(self.obj, -1 * previous_angle)
 						self.obj = self.rotation_obj.forward(self.obj, rotation_angle)
-					else:
+					else:		
 						self.obj = self.rotation_obj.forward(self.obj, rotation_angle - previous_angle)					
 				if not forward_only:
 					#define optimizer
-					self.obj.requires_grad_()
-					optimizer_params = [{'params': self.obj, 'lr': self.optim_step_size}]
+					optimizer_params = []
+					
+					if itr_idx in self.obj_update_iterations:
+						self.obj.requires_grad_()
+						optimizer_params.append({'params': self.obj, 'lr': self.optim_step_size})
 					if self.shift_align and self.sa_method == "gradient" and itr_idx >= self.sa_start_iteration:
 						optimizer_params.append({'params': yx_shift, 'lr': self.sa_step_size})
 					if self.defocus_refine and self.dr_method == "gradient" and itr_idx >= self.dr_start_iteration:
@@ -204,14 +214,17 @@ class TorchTomographySolver:
 					yx_shift = yx_shift.unsqueeze(-1)
 					self.dataset.update_amplitudes(amplitudes, rotation_idx)
 				if not forward_only:
+
 		    		#compute cost
 					cost = self.cost_function(estimated_amplitudes, amplitudes.cuda())
 					running_cost += cost.item()
 
 					#backpropagation
 					cost.backward()
-
 					#update object
+					# if itr_idx >= self.dr_start_iteration:
+					# 	# print(torch.norm(defocus_list.grad.data))
+					# 	defocus_list_grad[:,data_idx] = defocus_list.grad.data *  self.dr_step_size
 					optimizer.step()
 					optimizer.zero_grad()
 					del cost
@@ -226,7 +239,7 @@ class TorchTomographySolver:
 					running_sa_pixel_count += torch.sum(torch.abs(yx_shift.cpu().flatten()))
 				if self.defocus_refine and itr_idx >= self.dr_start_iteration:
 					defocus_list.requires_grad = False
-					self.dataset.update_defocus_list(defocus_list[:].cpu(), rotation_idx)
+					self.dataset.update_defocus_list(defocus_list[:].cpu().detach(), rotation_idx)
 
 				previous_angle = rotation_angle
 				
@@ -239,7 +252,8 @@ class TorchTomographySolver:
 			#apply regularization
 			amplitudes = None
 			torch.cuda.empty_cache()
-			self.obj = self.regularizer_obj.apply(self.obj)
+			if itr_idx in self.obj_update_iterations:
+				self.obj = self.regularizer_obj.apply(self.obj)
 			error.append(running_cost)
 			if self.shift_align and itr_idx >= self.sa_start_iteration:
 				self.sa_pixel_count.append(running_sa_pixel_count)		
@@ -247,9 +261,9 @@ class TorchTomographySolver:
 			if callback is not None:
 				callback(self.obj.cpu().detach(), error)
 				#TEMPPPPP
-				# callback(self.obj.cpu().detach(), self.sa_pixel_count)
+				# callback(defocus_list_grad, self.dataset.get_all_defocus_lists(), error)
 			if forward_only and itr_idx == 0:
-				return amplitude_list
+				return torch.cat([torch.unsqueeze(amplitude_list[idx],-1) for idx in range(len(amplitude_list))], axis=-1)
 			print("Iteration {:03d}/{:03d}. Error: {:03f}".format(itr_idx+1, self.optim_max_itr, np.log10(running_cost)))
 
 		self.defocus_list = self.dataset.get_all_defocus_lists()
@@ -268,7 +282,8 @@ class AETDataset(Dataset):
 		if tilt_angles is not None:
 			self.tilt_angles = tilt_angles * 1.0
 		if defocus_list is not None:
-			defocus_list = torch.tensor(defocus_list)
+			if not torch.is_tensor(defocus_list):
+				defocus_list = torch.tensor(defocus_list)
 			if len(defocus_list.shape) == 1:
 				self.defocus_list = defocus_list.unsqueeze(1).repeat(1, len(self.tilt_angles)) * 1.0
 			elif len(defocus_list.shape) == 2:
@@ -341,7 +356,7 @@ class PhaseContrastScattering(nn.Module):
 		self._pupil = Pupil(self.shape[0:2], self.voxel_size[0], self.wavelength, **kwargs)
 
 		#defocus operator
-		self._defocus = Defocus()
+		# self._defocus = Defocus()
 
 		#shift correction
 		self._shift = shift.ImageShiftGradientBased(self.shape[0:2], **kwargs)
@@ -356,7 +371,8 @@ class PhaseContrastScattering(nn.Module):
 		#pupil
 		field = self._pupil(field)
 		#defocus		
-		field = self._defocus(field, self._propagation.propagate.kernel_phase, defocus_list)
+		field = field_defocus(field, self._propagation.propagate.kernel_phase, defocus_list)
+		# field = self._defocus(field, self._propagation.propagate.kernel_phase, defocus_list)
 		#shift
 		field = self._shift(field, yx_shift)
 		#crop

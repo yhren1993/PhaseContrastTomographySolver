@@ -72,7 +72,7 @@ def division_complex(complex_tensor1, complex_tensor2):
 def abs(complex_tensor):
     '''Compute element-wise absolute value of a complex variable'''
     assert complex_tensor.shape[-1]==2, "Complex tensor should have real and imaginary parts."
-    output         = ((complex_tensor**2).sum(-1))**0.5
+    output = ((complex_tensor**2).sum(-1))**0.5
     return output    
 
 def convolve_kernel(tensor_in, kernel, n_dim=1, flag_inplace=True):
@@ -112,6 +112,16 @@ def ifftshift(tensor_in, axes=None):
     for axis in axes:
         ret =  torch.roll(ret, -1*int(ret.shape[axis]//2), dims=int(axis))
     return ret
+
+class ComplexConj(torch.autograd.Function):
+    '''Complex multiplication class for autograd'''
+    @staticmethod
+    def forward(ctx, tensor_in):
+        return conj(tensor_in)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return conj(grad_output)
 
 class ComplexMul(torch.autograd.Function):
     '''Complex multiplication class for autograd'''
@@ -217,3 +227,16 @@ class ComplexExp(torch.autograd.Function):
         output,        = ctx.saved_tensors
         grad_input     = multiply_complex(conj(output), grad_output)
         return grad_input
+
+class ComplexConv(torch.autograd.Function):
+    '''Complex exponential class for autograd'''
+    @staticmethod
+    def forward(ctx, tensor_in, kernel_in, n_dim, flag_inplace):
+        ctx.save_for_backward(kernel_in)
+        ctx.n_dim = n_dim
+        ctx.flag_inplace = flag_inplace
+        return convolve_kernel(tensor_in, kernel_in, n_dim, flag_inplace)
+    @staticmethod
+    def backward(ctx, grad_output):        
+        kernel_in, = ctx.saved_tensors
+        return convolve_kernel(grad_output, conj(kernel_in), ctx.n_dim, ctx.flag_inplace), convolve_kernel(conj(grad_output), kernel_in, ctx.n_dim, ctx.flag_inplace), None, None
