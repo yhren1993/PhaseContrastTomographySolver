@@ -103,6 +103,7 @@ class Regularizer:
 class ProximalOperator():
 	def __init__(self, proximal_name):
 		self.proximal_name = proximal_name
+		self.itr_count = 0
 	def compute_cost(self):
 		pass
 	def compute_prox(self):
@@ -115,7 +116,13 @@ class ProximalOperator():
 class TotalVariation(ProximalOperator):
 	def __init__(self, **kwargs):
 		proximal_name       = "Total Variation"
+
+		self.parameter_list = None
 		parameter           = kwargs.get("regularizer_total_variation_parameter", 1.0)
+		if not np.isscalar(parameter):
+			self.parameter_list = parameter
+			parameter = self.parameter_list[0]
+		
 		maxitr              = kwargs.get("regularizer_total_variation_maxitr",   15)
 		self.order          = kwargs.get("regularizer_total_variation_order",    1)
 		self.pure_real      = kwargs.get("regularizer_pure_real",                False)
@@ -147,16 +154,19 @@ class TotalVariation(ProximalOperator):
 		self.set_parameter(parameter, maxitr)
 		super().__init__(proximal_name)
 	
-
-
-	def set_parameter(self, parameter, maxitr):
-		self.parameter = parameter
-		self.maxitr = maxitr
+	def set_parameter(self, parameter=None, maxitr=None):
+		if parameter is not None:
+			self.parameter = parameter
+		if maxitr is not None:
+			self.maxitr = maxitr
+		return
 
 	def compute_cost(self, x):
 		return None
 	
 	def compute_prox(self, x):
+		if self.parameter_list is not None:
+			self.set_parameter(self.parameter_list[self.itr_count])
 		x_device = x.device
 		x = x.to(device=self.device)
 		if self.pure_real:
@@ -175,6 +185,7 @@ class TotalVariation(ProximalOperator):
 			self.set_parameter(self.parameter / 1.0, self.maxitr)
 			x[...,1] = self._compute_prox_real(op.imag(x), self.imagProjector)
 			self.set_parameter(self.parameter * 1.0, self.maxitr)
+		self.itr_count += 1	
 		return x.to(x_device)
 
 	def _compute_tv_norm(self, x):

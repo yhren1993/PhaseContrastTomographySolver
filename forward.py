@@ -70,7 +70,7 @@ class TorchTomographySolver:
 			-- regularizer parameters --
 			regularizer_total_variation: boolean [False]
 			regularizer_total_variation_gpu: boolean [False]
-			regularizer_total_variation_parameter: controls amount of total variation, scalar [1.0]
+			regularizer_total_variation_parameter: controls amount of total variation, scalar or vector of length maxitr. [scalar 1.0]
 			regularizer_total_variation_maxitr: number of iterations for total variation, integer [15]
 			regularizer_total_variation_order: differential order, scalar [1], higher order not yet implemented
 			regularizer_pure_real: boolean [False]
