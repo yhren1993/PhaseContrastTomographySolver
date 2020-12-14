@@ -160,7 +160,7 @@ class TorchTomographySolver:
 		for itr_idx in range(self.optim_max_itr):
 			sys.stdout.flush()
 			running_cost = 0.0
-			defocus_list_grad[:] = 0.0
+			#defocus_list_grad[:] = 0.0
 			if self.shift_align and itr_idx >= self.sa_start_iteration:
 				running_sa_pixel_count  = 0.0
 			for data_idx, data in enumerate(self.dataloader, 0):
