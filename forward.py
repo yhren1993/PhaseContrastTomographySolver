@@ -20,6 +20,7 @@ import torch.optim as optim
 import operators as op
 import utilities
 import shift
+import transform
 from aperture import Pupil
 from propagation import SingleSlicePropagation, Defocus, MultislicePropagation
 from regularizers import Regularizer
@@ -54,6 +55,12 @@ class TorchTomographySolver:
 			maxitr: maximum number of iterations [100]
 			step_size: step_size for each gradient update [0.1]
 			momentum: [0.0 NOTIMPLEMENTED]
+
+
+			-- transform alignment parameters (currently only support rigid body transform alignment) -- 
+			transform_align: whether to turn on transform alignment, boolean, [False]
+			ta_method: "optical_flow"
+			ta_start_iteration: alignment process will not start until then, int, [0]
 
 			-- Shift alignment parameters -- 
 			shift_align: whether to turn on alignment, boolean, [False]
@@ -93,6 +100,11 @@ class TorchTomographySolver:
 
 		self.obj_update_iterations = kwargs.get("obj_update_iterations", np.arange(self.optim_max_itr))
 
+		#parameters for transform alignment
+		self.transform_align     = kwargs.get("transform_align",      False)
+		self.ta_method           = kwargs.get("ta_method",            "optical_flow")
+		self.ta_start_iteration  = kwargs.get("ta_start_iteration",   0)
+
 		#parameters for shift alignment
 		self.shift_align         = kwargs.get("shift_align",          False)
 		self.sa_method           = kwargs.get("sa_method",            "gradient")
@@ -111,6 +123,10 @@ class TorchTomographySolver:
 			self.shift_obj		 = shift.ImageShiftCorrelationBased(kwargs["amplitude_measurements"].shape[0:2], \
 										    					    upsample_factor = 10, method = self.sa_method, \
 											 					    device=torch.device('cpu'))
+
+		if self.transform_align:
+			self.transform_obj   = transform.ImageTransformOpticalFlow(kwargs["amplitude_measurements"].shape[0:2],\
+				         											   method = self.ta_method)
 
 		self.dataset      	     = AETDataset(**kwargs)
 		self.num_defocus	     = self.dataset.get_all_defocus_lists().shape[0]
@@ -152,6 +168,10 @@ class TorchTomographySolver:
 			self.sa_pixel_count = []
 			self.yx_shift_all = []
 			self.yx_shifts = torch.zeros((2, self.num_defocus, self.num_rotation))
+
+		if self.transform_align:
+			self.xy_transform_all = []
+			self.xy_transforms = torch.zeros((2, 3, self.num_defocus, self.num_rotation))
 
 		# TEMPP
 		# defocus_list_grad = torch.zeros((self.num_defocus, self.num_rotation), dtype = torch.float32)
@@ -213,6 +233,10 @@ class TorchTomographySolver:
 					amplitudes, yx_shift, _ = self.shift_obj.estimate(estimated_amplitudes, amplitudes)
 					yx_shift = yx_shift.unsqueeze(-1)
 					self.dataset.update_amplitudes(amplitudes, rotation_idx)
+				if self.transform_align and itr_idx >= self.ta_start_iteration:
+					amplitudes, xy_transform = self.transform_obj.estimate(estimated_amplitudes, amplitudes)
+					xy_transform = xy_transform.unsqueeze(-1)
+					self.dataset.update_amplitudes(amplitudes, rotation_idx)
 				if not forward_only:
 
 		    		#compute cost
@@ -233,10 +257,18 @@ class TorchTomographySolver:
 					amplitude_list.append(estimated_amplitudes.cpu().detach())
 				del estimated_amplitudes
 				self.obj.requires_grad = False
+
+				#keep track of shift alignment for the tilt
 				if self.shift_align and itr_idx >= self.sa_start_iteration:
 					yx_shift.requires_grad = False
 					self.yx_shifts[:,:,rotation_idx] = yx_shift[:].cpu()
 					running_sa_pixel_count += torch.sum(torch.abs(yx_shift.cpu().flatten()))
+				
+				#keep track of transform alignment for the tilt
+				if self.transform_align and itr_idx >= self.ta_start_iteration:
+					self.xy_transforms[:,:,:,rotation_idx] = xy_transform[:].cpu()
+
+				#keep track of defocus alignment for the tilt
 				if self.defocus_refine and itr_idx >= self.dr_start_iteration:
 					defocus_list.requires_grad = False
 					self.dataset.update_defocus_list(defocus_list[:].cpu().detach(), rotation_idx)
@@ -255,9 +287,16 @@ class TorchTomographySolver:
 			if itr_idx in self.obj_update_iterations:
 				self.obj = self.regularizer_obj.apply(self.obj)
 			error.append(running_cost)
+
+			#keep track of shift alignment results
 			if self.shift_align and itr_idx >= self.sa_start_iteration:
 				self.sa_pixel_count.append(running_sa_pixel_count)		
 				self.yx_shift_all.append(np.array(self.yx_shifts).copy())
+			
+			#keep track of transform alignment results
+			if self.transform_align and itr_idx >= self.ta_start_iteration:
+				self.xy_transform_all.append(np.array(self.xy_transforms).copy())
+
 			if callback is not None:
 				callback(self.obj.cpu().detach(), error)
 				#TEMPPPPP
