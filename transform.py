@@ -27,22 +27,23 @@ class ImageTransformOpticalFlow():
         self.xy_lin = np.concatenate((self.x_lin[np.newaxis,], self.y_lin[np.newaxis,])).astype('float32')
         
 
-    def _coordinate_warp(self, transform_mat, xy_lin, xy_flow):
-        transform_mat = transform_mat.astype('float32')
+    def _coordinate_warp(self, transform_vec, xy_lin, xy_flow):
+        transform_vec = transform_vec.astype('float32')
+        rot_mat = [np.cos(transform_vec[0]), \
+                   -np.sin(transform_vec[0]), \
+                   np.sin(transform_vec[0]), \
+                   np.cos(transform_vec[0])]
         xy_predict = np.zeros_like(xy_lin)
-        xy_predict[0,] = transform_mat[0] * xy_lin[0,] + transform_mat[1] * xy_lin[1,] + transform_mat[4]
-        xy_predict[1,] = transform_mat[2] * xy_lin[0,] + transform_mat[3] * xy_lin[1,] + transform_mat[5]
+        xy_predict[0,] = rot_mat[0] * xy_lin[0,] + rot_mat[1] * xy_lin[1,] + transform_vec[1]
+        xy_predict[1,] = rot_mat[2] * xy_lin[0,] + rot_mat[3] * xy_lin[1,] + transform_vec[2]
         resid = xy_predict - xy_flow
         f_val = 0.5 * np.sum(resid.transpose((1,2,0)).flatten() ** 2)
         f_grad = []
-        #R11
-        f_grad.append(np.sum((xy_lin[0,] * resid[0,]).flatten()))
-        #R12
-        f_grad.append(np.sum((xy_lin[1,] * resid[0,]).flatten()))
-        #R21
-        f_grad.append(np.sum((xy_lin[0,] * resid[1,]).flatten()))
-        #R22
-        f_grad.append(np.sum((xy_lin[1,] * resid[1,]).flatten()))
+        #theta
+        f_grad.append(np.sum((rot_mat[1] * xy_lin[0,] * resid[0,]).flatten()) +\
+                      np.sum((-rot_mat[0] * xy_lin[1,] * resid[0,]).flatten()) + \
+                      np.sum((rot_mat[0] * xy_lin[0,] * resid[1,]).flatten()) + \
+                      np.sum((rot_mat[1] * xy_lin[1,] * resid[1,]).flatten()))
         #dx
         f_grad.append(np.sum((resid[0,]).flatten()))
         #dy
@@ -56,21 +57,31 @@ class ImageTransformOpticalFlow():
         flow = optical_flow_tvl1(predicted, measured)
         flow[[1,0],] = flow[[0,1],]
         xy_flow = self.xy_lin - flow
-        _Afunc_coord_warp = lambda transform_mat: self._coordinate_warp(transform_mat, self.xy_lin, xy_flow)    
+        _Afunc_coord_warp = lambda transform_vec: self._coordinate_warp(transform_vec, self.xy_lin, xy_flow)    
 
         #estimate transform matrix from optical flow
-        transform_final = sop.fmin_l_bfgs_b(_Afunc_coord_warp, np.array([1.,0,0,1,0,0]))[0]        
+        results = sop.fmin_l_bfgs_b(_Afunc_coord_warp, np.array([0.0,0,0]))
+        transform_final = results[0]
+        if results[2]["warnflag"]:
+            transform_final *= 0.0
+            print("Transform estimation not converged")
 
         #inverse warp measured image
-        aff_mat = np.array([transform_final[[0,1,4]], transform_final[[2,3,5]],[0,0,1]])
+        transform_mat = np.array([np.cos(transform_final[0]), \
+                                  -np.sin(transform_final[0]), \
+                                  np.sin(transform_final[0]), \
+                                  np.cos(transform_final[0]), \
+                                  transform_final[1], \
+                                  transform_final[2]])        
+        aff_mat = np.array([transform_mat[[0,1,4]], transform_mat[[2,3,5]],[0,0,1]])
         tform = transform.AffineTransform(matrix = aff_mat)
         measured_warp = transform.warp(measured, tform.inverse, cval = 1.0)
 
-        return measured_warp, aff_mat[0:2,]
+        return measured_warp, transform_final
 
     def estimate(self, predicted_stack, measured_stack):
         assert predicted_stack.shape == measured_stack.shape
-        aff_mat_list = np.zeros((2,3,measured_stack.shape[2]), dtype="float32")
+        transform_vec_list = np.zeros((3,measured_stack.shape[2]), dtype="float32")
 
         #Change from torch array to numpy array
         flag_predicted_gpu = predicted_stack.is_cuda
@@ -86,9 +97,9 @@ class ImageTransformOpticalFlow():
         
         #For each image, estimate the affine transform error
         for img_idx in range(measured_np.shape[2]):
-            measured_np[...,img_idx], aff_mat = self._estimate_single(predicted_np[...,img_idx], \
+            measured_np[...,img_idx], transform_vec = self._estimate_single(predicted_np[...,img_idx], \
                                                                       measured_np[...,img_idx])
-            aff_mat_list[...,img_idx] = aff_mat
+            transform_vec_list[...,img_idx] = transform_vec
         
         #Change data back to torch tensor format
         if flag_predicted_gpu:
@@ -99,4 +110,4 @@ class ImageTransformOpticalFlow():
             measured_stack  = measured_stack.cuda()        
             measured_np     = measured_np.cuda()
 
-        return measured_np, torch.tensor(aff_mat_list)
+        return measured_np, torch.tensor(transform_vec_list)

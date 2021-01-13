@@ -171,7 +171,7 @@ class TorchTomographySolver:
 
 		if self.transform_align:
 			self.xy_transform_all = []
-			self.xy_transforms = torch.zeros((2, 3, self.num_defocus, self.num_rotation))
+			self.xy_transforms = torch.zeros((3, self.num_defocus, self.num_rotation))
 
 		# TEMPP
 		# defocus_list_grad = torch.zeros((self.num_defocus, self.num_rotation), dtype = torch.float32)
@@ -271,7 +271,7 @@ class TorchTomographySolver:
 				#keep track of transform alignment for the tilt
 				if self.transform_align and itr_idx >= self.ta_start_iteration:
 					if abs(rotation_angle) - 0.0 > 1e-2:	
-						self.xy_transforms[:,:,:,rotation_idx] = xy_transform[:].cpu()
+						self.xy_transforms[...,rotation_idx] = xy_transform[:].cpu()
 
 				#keep track of defocus alignment for the tilt
 				if self.defocus_refine and itr_idx >= self.dr_start_iteration:
