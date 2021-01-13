@@ -230,13 +230,15 @@ class TorchTomographySolver:
 
 				#Correlation based shift estimation
 				if self.shift_align and shift.is_correlation_method(self.sa_method) and itr_idx >= self.sa_start_iteration:
-					amplitudes, yx_shift, _ = self.shift_obj.estimate(estimated_amplitudes, amplitudes)
-					yx_shift = yx_shift.unsqueeze(-1)
-					self.dataset.update_amplitudes(amplitudes, rotation_idx)
+					if abs(rotation_angle) - 0.0 > 1e-2:
+						amplitudes, yx_shift, _ = self.shift_obj.estimate(estimated_amplitudes, amplitudes)
+						yx_shift = yx_shift.unsqueeze(-1)
+						self.dataset.update_amplitudes(amplitudes, rotation_idx)
 				if self.transform_align and itr_idx >= self.ta_start_iteration:
-					amplitudes, xy_transform = self.transform_obj.estimate(estimated_amplitudes, amplitudes)
-					xy_transform = xy_transform.unsqueeze(-1)
-					self.dataset.update_amplitudes(amplitudes, rotation_idx)
+					if abs(rotation_angle) - 0.0 > 1e-2:
+						amplitudes, xy_transform = self.transform_obj.estimate(estimated_amplitudes, amplitudes)						
+						xy_transform = xy_transform.unsqueeze(-1)
+						self.dataset.update_amplitudes(amplitudes, rotation_idx)
 				if not forward_only:
 
 		    		#compute cost
@@ -260,13 +262,16 @@ class TorchTomographySolver:
 
 				#keep track of shift alignment for the tilt
 				if self.shift_align and itr_idx >= self.sa_start_iteration:
-					yx_shift.requires_grad = False
-					self.yx_shifts[:,:,rotation_idx] = yx_shift[:].cpu()
-					running_sa_pixel_count += torch.sum(torch.abs(yx_shift.cpu().flatten()))
+					if yx_shift is not None:
+						yx_shift.requires_grad = False 
+						if abs(rotation_angle) - 0.0 > 1e-2:
+							self.yx_shifts[:,:,rotation_idx] = yx_shift[:].cpu()
+							running_sa_pixel_count += torch.sum(torch.abs(yx_shift.cpu().flatten()))
 				
 				#keep track of transform alignment for the tilt
 				if self.transform_align and itr_idx >= self.ta_start_iteration:
-					self.xy_transforms[:,:,:,rotation_idx] = xy_transform[:].cpu()
+					if abs(rotation_angle) - 0.0 > 1e-2:	
+						self.xy_transforms[:,:,:,rotation_idx] = xy_transform[:].cpu()
 
 				#keep track of defocus alignment for the tilt
 				if self.defocus_refine and itr_idx >= self.dr_start_iteration:
