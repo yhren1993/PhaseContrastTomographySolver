@@ -130,9 +130,11 @@ class TorchTomographySolver:
 
 		self.dataset      	     = AETDataset(**kwargs)
 		self.num_defocus	     = self.dataset.get_all_defocus_lists().shape[0]
-		self.num_rotation        = len(self.dataset.tilt_angles)
-		self.tomography_obj      = PhaseContrastScattering(**kwargs)
-		self.regularizer_obj     = Regularizer(**kwargs)
+		self.num_rotation            = len(self.dataset.tilt_angles)
+		self.tomography_obj          = PhaseContrastScattering(**kwargs)
+		if not np.isscalar(kwargs["regularizer_total_variation_parameter"]):
+			assert self.optim_max_itr == len(kwargs["regularizer_total_variation_parameter"])
+		self.regularizer_obj         = Regularizer(**kwargs)
 		self.rotation_obj	     = utilities.ImageRotation(self.shape, axis = 0)
 		
 		self.cost_function       = nn.MSELoss(reduction='sum')
@@ -171,8 +173,8 @@ class TorchTomographySolver:
 
 		if self.transform_align:
 			self.xy_transform_all = []
-			self.xy_transforms = torch.zeros((3, self.num_defocus, self.num_rotation))
-
+			self.xy_transforms = torch.zeros((6, self.num_defocus, self.num_rotation))
+#			self.xy_transforms = torch.zeros((3, self.num_defocus, self.num_rotation))
 		# TEMPP
 		# defocus_list_grad = torch.zeros((self.num_defocus, self.num_rotation), dtype = torch.float32)
 
@@ -227,21 +229,24 @@ class TorchTomographySolver:
 				
 				#forward scattering
 				estimated_amplitudes = self.tomography_obj(self.obj, defocus_list, yx_shift)
-
-				#Correlation based shift estimation
-				if self.shift_align and shift.is_correlation_method(self.sa_method) and itr_idx >= self.sa_start_iteration:
-					if abs(rotation_angle) - 0.0 > 1e-2:
-						amplitudes, yx_shift, _ = self.shift_obj.estimate(estimated_amplitudes, amplitudes)
-						yx_shift = yx_shift.unsqueeze(-1)
-						self.dataset.update_amplitudes(amplitudes, rotation_idx)
-				if self.transform_align and itr_idx >= self.ta_start_iteration:
-					if abs(rotation_angle) - 0.0 > 1e-2:
-						amplitudes, xy_transform = self.transform_obj.estimate(estimated_amplitudes, amplitudes)						
-						xy_transform = xy_transform.unsqueeze(-1)
-						self.dataset.update_amplitudes(amplitudes, rotation_idx)
+				#in-plane rotation estimation
 				if not forward_only:
+					if self.transform_align and itr_idx >= self.ta_start_iteration:
+						if abs(rotation_angle) - 0.0 > 1e-2:
+							amplitudes, xy_transform = self.transform_obj.estimate(estimated_amplitudes, amplitudes)						
+							xy_transform = xy_transform.unsqueeze(-1)
+#						self.dataset.update_amplitudes(amplitudes, rotation_idx)
+					#Correlation based shift estimation
+					if self.shift_align and shift.is_correlation_method(self.sa_method) and itr_idx >= self.sa_start_iteration:
+						if abs(rotation_angle) - 0.0 > 1e-2:
+							amplitudes, yx_shift, _ = self.shift_obj.estimate(estimated_amplitudes, amplitudes)
+							yx_shift = yx_shift.unsqueeze(-1)
+#						self.dataset.update_amplitudes(amplitudes, rotation_idx)
+					if itr_idx == self.optim_max_itr - 1:
+						print("Last iteration: updated amplitudes")
+						self.dataset.update_amplitudes(amplitudes, rotation_idx)
 
-		    		#compute cost
+			    		#compute cost
 					cost = self.cost_function(estimated_amplitudes, amplitudes.cuda())
 					running_cost += cost.item()
 

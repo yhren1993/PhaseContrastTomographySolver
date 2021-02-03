@@ -13,6 +13,7 @@ import torch
 from skimage.registration import optical_flow_tvl1
 from skimage import transform
 import scipy.optimize as sop
+from pystackreg import StackReg
 
 class ImageTransformOpticalFlow():
     """
@@ -25,63 +26,20 @@ class ImageTransformOpticalFlow():
         self.shape = shape
         self.x_lin, self.y_lin = np.meshgrid(np.arange(self.shape[1]), np.arange(self.shape[0]))
         self.xy_lin = np.concatenate((self.x_lin[np.newaxis,], self.y_lin[np.newaxis,])).astype('float32')
-        
-
-    def _coordinate_warp(self, transform_vec, xy_lin, xy_flow):
-        transform_vec = transform_vec.astype('float32')
-        rot_mat = [np.cos(transform_vec[0]), \
-                   -np.sin(transform_vec[0]), \
-                   np.sin(transform_vec[0]), \
-                   np.cos(transform_vec[0])]
-        xy_predict = np.zeros_like(xy_lin)
-        xy_predict[0,] = rot_mat[0] * xy_lin[0,] + rot_mat[1] * xy_lin[1,] + transform_vec[1]
-        xy_predict[1,] = rot_mat[2] * xy_lin[0,] + rot_mat[3] * xy_lin[1,] + transform_vec[2]
-        resid = xy_predict - xy_flow
-        f_val = 0.5 * np.sum(resid.transpose((1,2,0)).flatten() ** 2)
-        f_grad = []
-        #theta
-        f_grad.append(np.sum((rot_mat[1] * xy_lin[0,] * resid[0,]).flatten()) +\
-                      np.sum((-rot_mat[0] * xy_lin[1,] * resid[0,]).flatten()) + \
-                      np.sum((rot_mat[0] * xy_lin[0,] * resid[1,]).flatten()) + \
-                      np.sum((rot_mat[1] * xy_lin[1,] * resid[1,]).flatten()))
-        #dx
-        f_grad.append(np.sum((resid[0,]).flatten()))
-        #dy
-        f_grad.append(np.sum((resid[1,]).flatten()))
-        f_grad = np.array(f_grad)
-        return f_val.astype('float64'), np.array(f_grad).astype('float64')
+        self.sr = StackReg(StackReg.RIGID_BODY)
 
     def _estimate_single(self, predicted, measured):
         assert predicted.shape == self.shape
         assert measured.shape == self.shape
-        flow = optical_flow_tvl1(predicted, measured)
-        flow[[1,0],] = flow[[0,1],]
-        xy_flow = self.xy_lin - flow
-        _Afunc_coord_warp = lambda transform_vec: self._coordinate_warp(transform_vec, self.xy_lin, xy_flow)    
-
-        #estimate transform matrix from optical flow
-        results = sop.fmin_l_bfgs_b(_Afunc_coord_warp, np.array([0.0,0,0]))
-        transform_final = results[0]
-        if results[2]["warnflag"]:
-            transform_final *= 0.0
-            print("Transform estimation not converged")
-
-        #inverse warp measured image
-        transform_mat = np.array([np.cos(transform_final[0]), \
-                                  -np.sin(transform_final[0]), \
-                                  np.sin(transform_final[0]), \
-                                  np.cos(transform_final[0]), \
-                                  transform_final[1], \
-                                  transform_final[2]])        
-        aff_mat = np.array([transform_mat[[0,1,4]], transform_mat[[2,3,5]],[0,0,1]])
+        aff_mat = self.sr.register(measured, predicted)
         tform = transform.AffineTransform(matrix = aff_mat)
-        measured_warp = transform.warp(measured, tform.inverse, cval = 1.0)
-
+        measured_warp = transform.warp(measured, tform.inverse, cval = 1.0, order = 5)
+        transform_final = aff_mat.flatten()[0:6]
         return measured_warp, transform_final
 
     def estimate(self, predicted_stack, measured_stack):
         assert predicted_stack.shape == measured_stack.shape
-        transform_vec_list = np.zeros((3,measured_stack.shape[2]), dtype="float32")
+        transform_vec_list = np.zeros((6,measured_stack.shape[2]), dtype="float32")
 
         #Change from torch array to numpy array
         flag_predicted_gpu = predicted_stack.is_cuda
