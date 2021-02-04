@@ -264,24 +264,24 @@ class TorchTomographySolver:
 					amplitude_list.append(estimated_amplitudes.cpu().detach())
 				del estimated_amplitudes
 				self.obj.requires_grad = False
+				if not forward_only:
+					#keep track of shift alignment for the tilt
+					if self.shift_align and itr_idx >= self.sa_start_iteration:
+						if yx_shift is not None:
+							yx_shift.requires_grad = False 
+							if abs(rotation_angle) - 0.0 > 1e-2:
+								self.yx_shifts[:,:,rotation_idx] = yx_shift[:].cpu()
+								running_sa_pixel_count += torch.sum(torch.abs(yx_shift.cpu().flatten()))
+					
+					#keep track of transform alignment for the tilt
+					if self.transform_align and itr_idx >= self.ta_start_iteration:
+						if abs(rotation_angle) - 0.0 > 1e-2:	
+							self.xy_transforms[...,rotation_idx] = xy_transform[:].cpu()
 
-				#keep track of shift alignment for the tilt
-				if self.shift_align and itr_idx >= self.sa_start_iteration:
-					if yx_shift is not None:
-						yx_shift.requires_grad = False 
-						if abs(rotation_angle) - 0.0 > 1e-2:
-							self.yx_shifts[:,:,rotation_idx] = yx_shift[:].cpu()
-							running_sa_pixel_count += torch.sum(torch.abs(yx_shift.cpu().flatten()))
-				
-				#keep track of transform alignment for the tilt
-				if self.transform_align and itr_idx >= self.ta_start_iteration:
-					if abs(rotation_angle) - 0.0 > 1e-2:	
-						self.xy_transforms[...,rotation_idx] = xy_transform[:].cpu()
-
-				#keep track of defocus alignment for the tilt
-				if self.defocus_refine and itr_idx >= self.dr_start_iteration:
-					defocus_list.requires_grad = False
-					self.dataset.update_defocus_list(defocus_list[:].cpu().detach(), rotation_idx)
+					#keep track of defocus alignment for the tilt
+					if self.defocus_refine and itr_idx >= self.dr_start_iteration:
+						defocus_list.requires_grad = False
+						self.dataset.update_defocus_list(defocus_list[:].cpu().detach(), rotation_idx)
 
 				previous_angle = rotation_angle
 				
