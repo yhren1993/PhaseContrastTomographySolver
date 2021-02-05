@@ -130,10 +130,12 @@ class TorchTomographySolver:
 
 		self.dataset      	     = AETDataset(**kwargs)
 		self.num_defocus	     = self.dataset.get_all_defocus_lists().shape[0]
-		self.num_rotation            = len(self.dataset.tilt_angles)
-		self.tomography_obj          = PhaseContrastScattering(**kwargs)
-		if not np.isscalar(kwargs["regularizer_total_variation_parameter"]):
-			assert self.optim_max_itr == len(kwargs["regularizer_total_variation_parameter"])
+		self.num_rotation        = len(self.dataset.tilt_angles)
+		self.tomography_obj      = PhaseContrastScattering(**kwargs)
+		reg_temp_param           = kwargs.get("regularizer_total_variation_parameter", None)
+		if reg_temp_param is not None:
+			if not np.isscalar(reg_temp_param):
+				assert self.optim_max_itr == len(kwargs["regularizer_total_variation_parameter"])
 		self.regularizer_obj         = Regularizer(**kwargs)
 		self.rotation_obj	     = utilities.ImageRotation(self.shape, axis = 0)
 		
@@ -294,8 +296,9 @@ class TorchTomographySolver:
 			#apply regularization
 			amplitudes = None
 			torch.cuda.empty_cache()
-			if itr_idx in self.obj_update_iterations:
-				self.obj = self.regularizer_obj.apply(self.obj)
+			if not forward_only:
+				if itr_idx in self.obj_update_iterations:
+					self.obj = self.regularizer_obj.apply(self.obj)
 			error.append(running_cost)
 
 			#keep track of shift alignment results
