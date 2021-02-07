@@ -10,9 +10,7 @@ Dec 28, 2020
 
 import numpy as np
 import torch
-from skimage.registration import optical_flow_tvl1
 from skimage import transform
-import scipy.optimize as sop
 from pystackreg import StackReg
 
 class ImageTransformOpticalFlow():
@@ -22,7 +20,7 @@ class ImageTransformOpticalFlow():
     Input parameters:
         - shape: shape of the image
     """ 
-    def __init__(self, shape, method="optical_flow"):
+    def __init__(self, shape, method="turboreg"):
         self.shape = shape
         self.x_lin, self.y_lin = np.meshgrid(np.arange(self.shape[1]), np.arange(self.shape[0]))
         self.xy_lin = np.concatenate((self.x_lin[np.newaxis,], self.y_lin[np.newaxis,])).astype('float32')

@@ -59,7 +59,7 @@ class TorchTomographySolver:
 
 			-- transform alignment parameters (currently only support rigid body transform alignment) -- 
 			transform_align: whether to turn on transform alignment, boolean, [False]
-			ta_method: "optical_flow"
+			ta_method: "turboreg"
 			ta_start_iteration: alignment process will not start until then, int, [0]
 
 			-- Shift alignment parameters -- 
@@ -102,7 +102,7 @@ class TorchTomographySolver:
 
 		#parameters for transform alignment
 		self.transform_align     = kwargs.get("transform_align",      False)
-		self.ta_method           = kwargs.get("ta_method",            "optical_flow")
+		self.ta_method           = kwargs.get("ta_method",            "turboreg")
 		self.ta_start_iteration  = kwargs.get("ta_start_iteration",   0)
 
 		#parameters for shift alignment
@@ -177,7 +177,7 @@ class TorchTomographySolver:
 #			self.xy_transforms = torch.zeros((3, self.num_defocus, self.num_rotation))
 		# TEMPP
 		# defocus_list_grad = torch.zeros((self.num_defocus, self.num_rotation), dtype = torch.float32)
-
+		ref_rot_idx = None 
 		#begin iteration
 		for itr_idx in range(self.optim_max_itr):
 			sys.stdout.flush()
@@ -189,6 +189,9 @@ class TorchTomographySolver:
 	    		#parse data
 				if not forward_only:
 					amplitudes, rotation_angle, defocus_list, rotation_idx = data
+					if ref_rot_idx is None and abs(rotation_angle-0.0) < 1e-2:
+						ref_rot_idx = rotation_idx
+						print("reference index is:", ref_rot_idx)
 					amplitudes = torch.squeeze(amplitudes)
 					if len(amplitudes.shape) < 3:
 						amplitudes = amplitudes.unsqueeze(-1)
@@ -232,13 +235,13 @@ class TorchTomographySolver:
 				#in-plane rotation estimation
 				if not forward_only:
 					if self.transform_align and itr_idx >= self.ta_start_iteration:
-						if abs(rotation_angle) - 0.0 > 1e-2:
+						if rotation_idx != ref_rot_idx:
 							amplitudes, xy_transform = self.transform_obj.estimate(estimated_amplitudes, amplitudes)						
 							xy_transform = xy_transform.unsqueeze(-1)
 #						self.dataset.update_amplitudes(amplitudes, rotation_idx)
 					#Correlation based shift estimation
 					if self.shift_align and shift.is_correlation_method(self.sa_method) and itr_idx >= self.sa_start_iteration:
-						if abs(rotation_angle) - 0.0 > 1e-2:
+						if rotation_idx != ref_rot_idx:
 							amplitudes, yx_shift, _ = self.shift_obj.estimate(estimated_amplitudes, amplitudes)
 							yx_shift = yx_shift.unsqueeze(-1)
 #						self.dataset.update_amplitudes(amplitudes, rotation_idx)
@@ -269,13 +272,13 @@ class TorchTomographySolver:
 					if self.shift_align and itr_idx >= self.sa_start_iteration:
 						if yx_shift is not None:
 							yx_shift.requires_grad = False 
-							if abs(rotation_angle) - 0.0 > 1e-2:
+							if rotation_idx != ref_rot_idx:
 								self.yx_shifts[:,:,rotation_idx] = yx_shift[:].cpu()
 								running_sa_pixel_count += torch.sum(torch.abs(yx_shift.cpu().flatten()))
 					
 					#keep track of transform alignment for the tilt
 					if self.transform_align and itr_idx >= self.ta_start_iteration:
-						if abs(rotation_angle) - 0.0 > 1e-2:	
+						if rotation_idx != ref_rot_idx:				
 							self.xy_transforms[...,rotation_idx] = xy_transform[:].cpu()
 
 					#keep track of defocus alignment for the tilt
