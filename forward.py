@@ -59,20 +59,23 @@ class TorchTomographySolver:
 
 			-- transform alignment parameters (currently only support rigid body transform alignment) -- 
 			transform_align: whether to turn on transform alignment, boolean, [False]
-			ta_method: "optical_flow"
+			ta_method: "turboreg"
 			ta_start_iteration: alignment process will not start until then, int, [0]
+			ta_iterations: iterations during which the alignment process will be on, [0, max_itr]
 
 			-- Shift alignment parameters -- 
 			shift_align: whether to turn on alignment, boolean, [False]
 			sa_method: shift alignment method, can be "gradient", "hybrid_correlation", "cross_correlation", or "phase_correlation", string, ["gradient"]
 			sa_step_size: step_size of shift parameters, float, [0.1]
 			sa_start_iteration: alignment process will not start until then, int, [0]
+			sa_iterations: iterations during which the alignment process will be on, [0, max_itr]
 
 			-- Defocus refinement parameters -- 
 			defocus_refine: whether to turn on defocus refinement for each measurement, boolean, [False]
 			dr_method: defocus refinement method, can be "gradient", string, ["gradient"]
 			dr_step_size: step_size of defocus refinement parameters, float, [0.1]
 			dr_start_iteration: refinement process will not start until then, int, [0]
+			dr_iterations: iterations during which the defocus refocus process will be on, [0, max_itr]
 
 			-- regularizer parameters --
 			regularizer_total_variation: boolean [False]
@@ -93,7 +96,7 @@ class TorchTomographySolver:
 		
 		self.shape 			     = kwargs.get("shape")
 		
-		self.shuffle		     = kwargs.get("shuffle",              True)
+		self.shuffle		     = kwargs.get("shuffle",          True)
 		self.optim_max_itr       = kwargs.get("maxitr",               100)
 		self.optim_step_size     = kwargs.get("step_size",            0.1)
 		self.optim_momentum      = kwargs.get("momentum",             0.0)
@@ -102,20 +105,29 @@ class TorchTomographySolver:
 
 		#parameters for transform alignment
 		self.transform_align     = kwargs.get("transform_align",      False)
-		self.ta_method           = kwargs.get("ta_method",            "optical_flow")
+		self.ta_method           = kwargs.get("ta_method",            "turboreg")
 		self.ta_start_iteration  = kwargs.get("ta_start_iteration",   0)
+		self.ta_iterations       = kwargs.get("ta_iterations",        None)
+		if self.ta_iterations is None:
+			self.ta_iterations = np.arange(self.ta_start_iteration, self.optim_max_itr)
 
 		#parameters for shift alignment
 		self.shift_align         = kwargs.get("shift_align",          False)
 		self.sa_method           = kwargs.get("sa_method",            "gradient")
 		self.sa_step_size        = kwargs.get("sa_step_size",         0.1)
 		self.sa_start_iteration  = kwargs.get("sa_start_iteration",   0)
+		self.sa_iterations       = kwargs.get("sa_iterations",        None)
+		if self.sa_iterations is None:
+			self.sa_iterations = np.arange(self.sa_start_iteration, self.optim_max_itr)
 
 		#parameters for defocus refinement
 		self.defocus_refine      = kwargs.get("defocus_refine",       False)
 		self.dr_method           = kwargs.get("dr_method",            "gradient")
 		self.dr_step_size        = kwargs.get("dr_step_size",         0.1)
 		self.dr_start_iteration  = kwargs.get("dr_start_iteration",   0)		
+		self.dr_iterations       = kwargs.get("dr_iterations",        None)
+		if self.dr_iterations is None:
+			self.dr_iterations = np.arange(self.dr_start_iteration, self.optim_max_itr)
 
 		if not shift.is_valid_method(self.sa_method):
 			raise ValueError('Shift alignment method not valid.')
@@ -179,18 +191,21 @@ class TorchTomographySolver:
 #			self.xy_transforms = torch.zeros((3, self.num_defocus, self.num_rotation))
 		# TEMPP
 		# defocus_list_grad = torch.zeros((self.num_defocus, self.num_rotation), dtype = torch.float32)
-
+		ref_rot_idx = None 
 		#begin iteration
 		for itr_idx in range(self.optim_max_itr):
 			sys.stdout.flush()
 			running_cost = 0.0
 			#defocus_list_grad[:] = 0.0
-			if self.shift_align and itr_idx >= self.sa_start_iteration:
+			if self.shift_align and itr_idx in self.sa_iterations:
 				running_sa_pixel_count  = 0.0
 			for data_idx, data in enumerate(self.dataloader, 0):
 	    		#parse data
 				if not forward_only:
 					amplitudes, rotation_angle, defocus_list, rotation_idx = data
+					if ref_rot_idx is None and abs(rotation_angle-0.0) < 1e-2:
+						ref_rot_idx = rotation_idx
+						print("reference index is:", ref_rot_idx)
 					amplitudes = torch.squeeze(amplitudes)
 					if len(amplitudes.shape) < 3:
 						amplitudes = amplitudes.unsqueeze(-1)
@@ -201,11 +216,11 @@ class TorchTomographySolver:
 				defocus_list = torch.flatten(defocus_list).cuda()
 				rotation_angle = rotation_angle.item()
 				yx_shift = None
-				if self.shift_align and self.sa_method == "gradient" and itr_idx >= self.sa_start_iteration:
+				if self.shift_align and self.sa_method == "gradient" and itr_idx in self.sa_iterations:
 					yx_shift = self.yx_shifts[:,:,rotation_idx]
 					yx_shift = yx_shift.cuda()
 					yx_shift.requires_grad_()
-				if self.defocus_refine and self.dr_method == "gradient" and itr_idx >= self.dr_start_iteration:
+				if self.defocus_refine and self.dr_method == "gradient" and itr_idx in self.dr_iterations:
 					defocus_list.requires_grad_()					
 				#rotate object
 				if data_idx == 0:
@@ -223,9 +238,9 @@ class TorchTomographySolver:
 					if itr_idx in self.obj_update_iterations:
 						self.obj.requires_grad_()
 						optimizer_params.append({'params': self.obj, 'lr': self.optim_step_size})
-					if self.shift_align and self.sa_method == "gradient" and itr_idx >= self.sa_start_iteration:
+					if self.shift_align and self.sa_method == "gradient" and itr_idx in self.sa_iterations:
 						optimizer_params.append({'params': yx_shift, 'lr': self.sa_step_size})
-					if self.defocus_refine and self.dr_method == "gradient" and itr_idx >= self.dr_start_iteration:
+					if self.defocus_refine and self.dr_method == "gradient" and itr_idx in self.dr_iterations:
 						optimizer_params.append({'params': defocus_list, 'lr': self.dr_step_size})
 					optimizer = optim.SGD(optimizer_params)
 				
@@ -233,14 +248,14 @@ class TorchTomographySolver:
 				estimated_amplitudes = self.tomography_obj(self.obj, defocus_list, yx_shift)
 				#in-plane rotation estimation
 				if not forward_only:
-					if self.transform_align and itr_idx >= self.ta_start_iteration:
-						if abs(rotation_angle) - 0.0 > 1e-2:
+					if self.transform_align and itr_idx in self.ta_iterations:
+						if rotation_idx != ref_rot_idx:
 							amplitudes, xy_transform = self.transform_obj.estimate(estimated_amplitudes, amplitudes)						
 							xy_transform = xy_transform.unsqueeze(-1)
 #						self.dataset.update_amplitudes(amplitudes, rotation_idx)
 					#Correlation based shift estimation
-					if self.shift_align and shift.is_correlation_method(self.sa_method) and itr_idx >= self.sa_start_iteration:
-						if abs(rotation_angle) - 0.0 > 1e-2:
+					if self.shift_align and shift.is_correlation_method(self.sa_method) and itr_idx in self.sa_iterations:
+						if rotation_idx != ref_rot_idx:
 							amplitudes, yx_shift, _ = self.shift_obj.estimate(estimated_amplitudes, amplitudes)
 							yx_shift = yx_shift.unsqueeze(-1)
 #						self.dataset.update_amplitudes(amplitudes, rotation_idx)
@@ -268,20 +283,20 @@ class TorchTomographySolver:
 				self.obj.requires_grad = False
 				if not forward_only:
 					#keep track of shift alignment for the tilt
-					if self.shift_align and itr_idx >= self.sa_start_iteration:
+					if self.shift_align and itr_idx in self.sa_iterations:
 						if yx_shift is not None:
 							yx_shift.requires_grad = False 
-							if abs(rotation_angle) - 0.0 > 1e-2:
+							if rotation_idx != ref_rot_idx:
 								self.yx_shifts[:,:,rotation_idx] = yx_shift[:].cpu()
 								running_sa_pixel_count += torch.sum(torch.abs(yx_shift.cpu().flatten()))
 					
 					#keep track of transform alignment for the tilt
-					if self.transform_align and itr_idx >= self.ta_start_iteration:
-						if abs(rotation_angle) - 0.0 > 1e-2:	
+					if self.transform_align and itr_idx in self.ta_iterations:
+						if rotation_idx != ref_rot_idx:				
 							self.xy_transforms[...,rotation_idx] = xy_transform[:].cpu()
 
 					#keep track of defocus alignment for the tilt
-					if self.defocus_refine and itr_idx >= self.dr_start_iteration:
+					if self.defocus_refine and itr_idx in self.dr_iterations:
 						defocus_list.requires_grad = False
 						self.dataset.update_defocus_list(defocus_list[:].cpu().detach(), rotation_idx)
 
@@ -302,12 +317,12 @@ class TorchTomographySolver:
 			error.append(running_cost)
 
 			#keep track of shift alignment results
-			if self.shift_align and itr_idx >= self.sa_start_iteration:
+			if self.shift_align and itr_idx in self.sa_iterations:
 				self.sa_pixel_count.append(running_sa_pixel_count)		
 				self.yx_shift_all.append(np.array(self.yx_shifts).copy())
 			
 			#keep track of transform alignment results
-			if self.transform_align and itr_idx >= self.ta_start_iteration:
+			if self.transform_align and itr_idx in self.ta_iterations:
 				self.xy_transform_all.append(np.array(self.xy_transforms).copy())
 
 			if callback is not None:
