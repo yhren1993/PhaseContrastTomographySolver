@@ -109,6 +109,69 @@ def compare3DStack(stack_1, stack_2, axis = 2, cmap = "gray", clim = (0, 1), ext
     plt.show()
     return slider_obj
 
+def compare4DStack(stack_1, stack_2, cmap = "gray", clim = (0, 1), extent = (0, 1, 0, 1) , colorbar = True, flag_vertical = False):
+    assert stack_1.shape == stack_2.shape, "shape of two input stacks should be the same!"
+    axis, axis2 = 2, 3
+    image_1  = lambda index: stack_1[:, :, index[0], index[1]]
+    image_2  = lambda index: stack_2[:, :, index[0], index[1]]
+
+    current_idx1, current_idx2  = 0, 0
+    if flag_vertical:
+        _, ax        = plt.subplots(2, 1, figsize=(10, 2.5), sharex = 'all', sharey = 'all')
+    else:
+        _, ax        = plt.subplots(1, 2, figsize=(9, 5), sharex = 'all', sharey = 'all')
+    plt.subplots_adjust(left=0.15, bottom=0.15)
+    fig_1        = ax[0].imshow(image_1((current_idx1,current_idx2)), cmap = cmap,  clim = clim, extent = extent)
+    ax[0].axis("off")
+    ax[0].set_title("stack 1, layer: " + str(current_idx1) + " and " + str(current_idx2))
+    if colorbar:
+        plt.colorbar(fig_1, ax = ax[0])
+    fig_2        = ax[1].imshow(image_2((current_idx1,current_idx2)), cmap = cmap,  clim = clim, extent = extent)
+    ax[1].axis("off")
+    ax[1].set_title("stack 2, layer: " + str(current_idx1) + " and " + str(current_idx2))
+    if colorbar:
+        plt.colorbar(fig_2, ax = ax[1])
+    ax_slider    = plt.axes([0.10, 0.10, 0.65, 0.03])
+    slider_obj   = Slider(ax_slider, 'layer', 0, stack_1.shape[axis]-1, valinit=current_idx1, valfmt='%d')
+    def update_image(index):
+        global current_idx1
+        global current_idx2
+        index       = int(index)
+        current_idx1 = index
+        current_idx2 = current_idx2
+        ax[0].set_title("stack 1, layer: " + str(current_idx1) + " and " + str(current_idx2))
+        fig_1.set_data(image_1((current_idx1,current_idx2)))
+        ax[1].set_title("stack 2, layer: " + str(current_idx1) + " and " + str(current_idx2))
+        fig_2.set_data(image_2((current_idx1,current_idx2)))
+    ax_slider2    = plt.axes([0.10, 0.05, 0.65, 0.03])
+    slider_obj2   = Slider(ax_slider2, 'layer', 0, stack_1.shape[axis2]-1, valinit=current_idx2, valfmt='%d')
+    def update_image2(index):
+        global current_idx1
+        global current_idx2
+        index       = int(index)
+        current_idx1= current_idx1
+        current_idx2= index
+        ax[0].set_title("stack 1, layer: " + str(current_idx1) + " and " + str(current_idx2))
+        fig_1.set_data(image_1((current_idx1,current_idx2)))
+        ax[1].set_title("stack 2, layer: " + str(current_idx1) + " and " + str(current_idx2))
+        fig_2.set_data(image_2((current_idx1,current_idx2)))        
+    def arrow_key(event):
+        global current_idx1
+        global current_idx2
+        current_idx2 = current_idx2
+        if event.key == "left":
+            if current_idx1-1 >=0:
+                current_idx1 -= 1
+        elif event.key == "right":
+            if current_idx1+1 < stack_1.shape[axis]:
+                current_idx1 += 1
+        slider_obj.set_val(current_idx1)
+    slider_obj.on_changed(update_image)
+    slider_obj2.on_changed(update_image2)
+    plt.gcf().canvas.mpl_connect("key_release_event", arrow_key)
+    plt.show()
+    return slider_obj, slider_obj2
+
 
 def generate_grid_1d(shape, pixel_size = 1, flag_fourier = False, dtype = torch.float32, device = torch.device('cuda')):
     """
