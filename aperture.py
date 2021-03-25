@@ -13,8 +13,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-complex_conv= op.ComplexConv.apply
-
 def generate_hard_pupil(shape, pixel_size, numerical_aperture, wavelength, \
                    dtype=torch.float32, device=torch.device('cuda')):
     """
@@ -45,8 +43,8 @@ def generate_angular_spectrum_kernel(shape, pixel_size, wavelength, \
     else: 
         pupil_crop    = 1.0
     prop_kernel = 2.0 * np.pi * pupil_crop * \
-                  op.exponentiate(op.r2c((1./wavelength)**2 - kx_lin**2 - ky_lin**2), 0.5)
-    return op.multiply_complex(op._j, prop_kernel)
+                  ((1./wavelength)**2 - kx_lin**2 - ky_lin**2) ** 0.5
+    return 1j *prop_kernel
 
 class Pupil(nn.Module):
     """
@@ -65,5 +63,5 @@ class Pupil(nn.Module):
     def get_pupil(self):
         return self.pupil.cpu()
     def forward(self, field):
-        field_out = complex_conv(field, self.pupil, 2, False)
+        field_out = op.convolve_kernel(field, self.pupil, 2, False)
         return field_out

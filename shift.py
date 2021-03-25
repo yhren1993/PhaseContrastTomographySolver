@@ -17,9 +17,6 @@ import torch.nn as nn
 import numpy as np
 import numpy.fft as fft
 
-complex_mul = op.ComplexMul.apply
-complex_exp = op.ComplexExp.apply
-complex_conv= op.ComplexConv.apply
 
 possible_methods = [
                     "gradient",\
@@ -277,8 +274,8 @@ class ImageShiftCorrelationBased():
         for img_idx in range(stack.shape[2]):
             y_shift = shift_list[0,img_idx]
             x_shift = shift_list[1,img_idx]
-            kernel  = op.exp(op.multiply_complex(op._j, op.r2c(2 * np.pi * (self.kx_lin * x_shift + self.ky_lin * y_shift))))
-            stack[...,img_idx] = op.convolve_kernel(op.r2c(stack[...,img_idx]), kernel, n_dim=2)[...,0]
+            kernel  = torch.exp(2j * np.pi * (self.kx_lin * x_shift + self.ky_lin * y_shift))
+            stack[...,img_idx] = torch.real(op.convolve_kernel(stack[...,img_idx], kernel, n_dim=2))
         return stack
 
     def estimate(self, predicted, measured):
@@ -350,6 +347,6 @@ class ImageShiftGradientBased(nn.Module):
         for img_idx in range(field.shape[2]):
             y_shift = shift[0,img_idx]
             x_shift = shift[1,img_idx]
-            kernel  = complex_exp(compelx_mul(op._j, op.r2c(2 * np.pi * (self.kx_lin * x_shift + self.ky_lin * y_shift))))
-            field_out[...,img_idx,:] = complex_conv(field[...,img_idx,:], kernel, 2, True)
+            kernel  = torch.exp(2j * np.pi * (self.kx_lin * x_shift + self.ky_lin * y_shift))
+            field_out[...,img_idx] = op.convolve_kernel(field[...,img_idx], kernel, 2, True)
         return field_out

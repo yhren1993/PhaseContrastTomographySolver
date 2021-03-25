@@ -170,20 +170,17 @@ class TotalVariation(ProximalOperator):
 		x_device = x.device
 		x = x.to(device=self.device)
 		if self.pure_real:
-			x[...,0] = self._compute_prox_real(op.real(x), self.realProjector)
-			x[...,1] = 0.0
+			x = self._compute_prox_real(x.real, self.realProjector) + 0j
 		elif self.pure_imag:
-			x[...,0] = 0.0
-			x[...,1] = op.multiply_complex(op._j, op.r2c(self._compute_prox_real(op.imag(x), self.imagProjector)))
+			x = 1j * self._compute_prox_real(x.imag, self.realProjector)
 		elif self.pure_amplitude:
-			x[...,0] = self._compute_prox_real(op.abs(x), self.realProjector)
-			x[...,1] = 0.0
+			x = op.r2c(self._compute_prox_real(torch.abs(x), self.realProjector))
 		elif self.pure_phase:
-			x = op.exp(op.multiply_complex(op._j, op.r2c(self._compute_prox_real(op.angle(x), self.realProjector))))
+			x = torch.exp(1j* self._compute_prox_real(torch.angle(x), self.realProjector))
 		else:
-			x[...,0] = self._compute_prox_real(op.real(x), self.realProjector)
+			x_real = self._compute_prox_real(x.real, self.realProjector)
 			self.set_parameter(self.parameter / 1.0, self.maxitr)
-			x[...,1] = self._compute_prox_real(op.imag(x), self.imagProjector)
+			x = x_real + 1j * self._compute_prox_real(x.imag, self.imagProjector)
 			self.set_parameter(self.parameter * 1.0, self.maxitr)
 		self.itr_count += 1	
 		return x.to(x_device)
@@ -326,11 +323,13 @@ class Positivity(ProximalOperator):
 		return None
 
 	def compute_prox(self, x):
+		x_real = torch.real(x)
+		x_imag = torch.imag(x)
 		if self.real:
-			x[...,0] = self._bound_real_value(op.real(x), 0, self.real)
+			x_real = self._bound_real_value(x_real, 0, self.real)
 		if self.imag:
-			x[...,1] = self._bound_real_value(op.imag(x), 0, self.imag)
-		return x
+			x_imag = self._bound_real_value(x_imag, 0, self.imag)
+		return x_real + 1j * x_imag
 
 class Negativity(Positivity):
 	"""Enforce positivity constraint on a complex variable's real & imaginary part."""
@@ -349,8 +348,7 @@ class PureReal(ProximalOperator):
 		return None
 
 	def compute_prox(self, x):	
-		x[...,1] = 0.0
-		return x
+		return x.real + 0j
 
 class Pureimag(ProximalOperator):
 	"""Enforce imaginary constraint on a complex, real part will be cleared"""	
@@ -361,8 +359,7 @@ class Pureimag(ProximalOperator):
 		return None
 
 	def compute_prox(self, x):
-		x[...,0] = 0.0
-		return x
+		return 1j * x.imag
 
 class PureAmplitude(ProximalOperator):
 	def __init__(self):
@@ -370,9 +367,7 @@ class PureAmplitude(ProximalOperator):
 	def compute_cost(self, x):
 		return None
 	def compute_prox(self, x):	
-		x[...,0] = op.abs(x)
-		x[...,1] = 0.0
-		return x
+		return torch.abs(x)
 
 class PurePhase(ProximalOperator):
 	def __init__(self):
@@ -380,8 +375,7 @@ class PurePhase(ProximalOperator):
 	def compute_cost(self, x):
 		return None
 	def compute_prox(self, x):	
-		x = op.exp(op.multiply_complex(op._j, op.r2c(op.angle(x))))
-		return x
+		return torch.exp(1j * torch.angle(x))
 
 # class Lasso(ProximalOperator):
 # 	"""||x||_1 regularizer, soft thresholding with certain parameter"""

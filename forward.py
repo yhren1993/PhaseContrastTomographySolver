@@ -28,10 +28,8 @@ from regularizers import Regularizer
 import scipy.io as sio
 import numpy as np
 bin_obj       = utilities.BinObject.apply
-complex_exp   = op.ComplexExp.apply
-complex_mul   = op.ComplexMul.apply
 complex_abs   = op.ComplexAbs.apply
-field_defocus = Defocus.apply
+# field_defocus = Defocus.apply
 
 class TorchTomographySolver:
 	def __init__(self, **kwargs):
@@ -161,7 +159,6 @@ class TorchTomographySolver:
 					  False -- runs reconstruction
 		"""
 		if forward_only:
-			assert obj_init is not None
 			self.shuffle = False
 			amplitude_list = []
 		
@@ -175,8 +172,7 @@ class TorchTomographySolver:
 		else:
 			if not self.obj.is_cuda:
 				self.obj = self.obj.cuda()
-			if len(self.obj.shape) == 3:
-				self.obj = op.r2c(self.obj)
+			self.obj = op.r2c(self.obj)
 		
 		#initialize shift parameters
 		self.yx_shifts = None
@@ -423,7 +419,7 @@ class PhaseContrastScattering(nn.Module):
 		self._pupil = Pupil(self.shape[0:2], self.voxel_size[0], self.wavelength, **kwargs)
 
 		#defocus operator
-		# self._defocus = Defocus()
+		self._defocus = Defocus()
 
 		#shift correction
 		self._shift = shift.ImageShiftGradientBased(self.shape[0:2], **kwargs)
@@ -432,18 +428,18 @@ class PhaseContrastScattering(nn.Module):
 		#bin object
 		obj = bin_obj(obj, self.binning_factor)
 		#raise to transmittance
-		obj = complex_exp(complex_mul(op._j, self.sigma * obj))
+		obj = torch.exp(1j * self.sigma * obj)
 		#forward propagation & defocus
 		field = self._propagation(obj)
 		#pupil
 		field = self._pupil(field)
 		#defocus		
-		field = field_defocus(field, self._propagation.propagate.kernel_phase, defocus_list)
-		# field = self._defocus(field, self._propagation.propagate.kernel_phase, defocus_list)
+		# field = field_defocus(field, self._propagation.propagate.kernel_phase, defocus_list)
+		field = self._defocus(field, self._propagation.propagate.kernel_phase, defocus_list)
 		#shift
 		field = self._shift(field, yx_shift)
 		#crop
-		field = F.pad(field, (0,0,0,0, \
+		field = F.pad(field, (0,0, \
 							  -1 * self.pad_size[1], -1 * self.pad_size[1], \
 							  -1 * self.pad_size[0], -1 * self.pad_size[0]))
 		#compute amplitude

@@ -252,14 +252,14 @@ class ImageRotation:
         self.device         = device
 
         if self.axis == 0:
-            self.coord_phase_1 = op.r2c(-2.0 * np.pi * self.kz * self.x)
-            self.coord_phase_2 = op.r2c(-2.0 * np.pi * self.kx * self.z)
+            self.coord_phase_1 = -2.0 * np.pi * self.kz * self.x
+            self.coord_phase_2 = -2.0 * np.pi * self.kx * self.z
         elif self.axis == 1:
-            self.coord_phase_1 = op.r2c(-2.0 * np.pi * self.kz * self.y)
-            self.coord_phase_2 = op.r2c(-2.0 * np.pi * self.ky * self.z)
+            self.coord_phase_1 = -2.0 * np.pi * self.kz * self.y
+            self.coord_phase_2 = -2.0 * np.pi * self.ky * self.z
         elif self.axis == 2:
-            self.coord_phase_1 = op.r2c(-2.0 * np.pi * self.kx * self.y)
-            self.coord_phase_2 = op.r2c(-2.0 * np.pi * self.ky * self.x)
+            self.coord_phase_1 = -2.0 * np.pi * self.kx * self.y
+            self.coord_phase_2 = -2.0 * np.pi * self.ky * self.x
 
     def _rotate_3d(self, obj, shear_phase_1, shear_phase_2):
         """
@@ -278,30 +278,28 @@ class ImageRotation:
         Output:
           obj_rotate: rotate 3D array
         """
-        if len(obj.shape) == 3:
-            self.obj_rotate[self.range_crop_y, self.range_crop_x, self.range_crop_z,0] = obj 
-        else:
-            self.obj_rotate[self.range_crop_y, self.range_crop_x, self.range_crop_z,]  = obj         
+        flag_complex = obj.is_complex()
+        self.obj_rotate[self.range_crop_y, self.range_crop_x, self.range_crop_z] = op.r2c(obj)
         if self.axis == 0:
             self.obj_rotate = op.convolve_kernel(self.obj_rotate, shear_phase_1) #y,x,z
-            self.obj_rotate = op.convolve_kernel(self.obj_rotate.permute([0,2,1,3]), shear_phase_2.permute([0,2,1,3])) #y,z,x
-            self.obj_rotate = op.convolve_kernel(self.obj_rotate.permute([0,2,1,3]), shear_phase_1) #y,x,z
+            self.obj_rotate = op.convolve_kernel(self.obj_rotate.permute([0,2,1]), shear_phase_2.permute([0,2,1])) #y,z,x
+            self.obj_rotate = op.convolve_kernel(self.obj_rotate.permute([0,2,1]), shear_phase_1) #y,x,z
 
         elif self.axis == 1:
-            self.obj_rotate = op.convolve_kernel(self.obj_rotate.permute([1,0,2,3]), shear_phase_1.permute([1,0,2,3])) #x,y,z
-            self.obj_rotate = op.convolve_kernel(self.obj_rotate.permute([0,2,1,3]), shear_phase_2.permute([1,2,0,3])) #x,z,y
-            self.obj_rotate = op.convolve_kernel(self.obj_rotate.permute([0,2,1,3]), shear_phase_1.permute([1,0,2,3])) #x,y,z
-            self.obj_rotate = self.obj_rotate.permute([1,0,2,3])
+            self.obj_rotate = op.convolve_kernel(self.obj_rotate.permute([1,0,2]), shear_phase_1.permute([1,0,2])) #x,y,z
+            self.obj_rotate = op.convolve_kernel(self.obj_rotate.permute([0,2,1]), shear_phase_2.permute([1,2,0])) #x,z,y
+            self.obj_rotate = op.convolve_kernel(self.obj_rotate.permute([0,2,1]), shear_phase_1.permute([1,0,2])) #x,y,z
+            self.obj_rotate = self.obj_rotate.permute([1,0,2])
 
         elif self.axis == 2:
-            self.obj_rotate = op.convolve_kernel(self.obj_rotate.permute([2,0,1,3]), shear_phase_1.permute([2,0,1,3])) #z,y,x
-            self.obj_rotate = op.convolve_kernel(self.obj_rotate.permute([0,2,1,3]), shear_phase_2.permute([2,1,0,3])) #z,x,y
-            self.obj_rotate = op.convolve_kernel(self.obj_rotate.permute([0,2,1,3]), shear_phase_1.permute([2,0,1,3])) #z,y,x
-            self.obj_rotate = self.obj_rotate.permute([1,2,0,3])
-        if len(obj.shape) == 3:
-            obj[:] = self.obj_rotate[self.range_crop_y, self.range_crop_x, self.range_crop_z,0]
+            self.obj_rotate = op.convolve_kernel(self.obj_rotate.permute([2,0,1]), shear_phase_1.permute([2,0,1])) #z,y,x
+            self.obj_rotate = op.convolve_kernel(self.obj_rotate.permute([0,2,1]), shear_phase_2.permute([2,1,0])) #z,x,y
+            self.obj_rotate = op.convolve_kernel(self.obj_rotate.permute([0,2,1]), shear_phase_1.permute([2,0,1])) #z,y,x
+            self.obj_rotate = self.obj_rotate.permute([1,2,0])
+        if flag_complex:
+            obj[:] = self.obj_rotate[self.range_crop_y, self.range_crop_x, self.range_crop_z]
         else:
-            obj[:] = self.obj_rotate[self.range_crop_y, self.range_crop_x, self.range_crop_z,]
+            obj[:] = self.obj_rotate[self.range_crop_y, self.range_crop_x, self.range_crop_z].real
         return obj
 
     def forward(self, obj, theta):
@@ -317,8 +315,8 @@ class ImageRotation:
             alpha       = 1.0 * np.tan(theta / 2.0)
             beta        = np.sin(-1.0 * theta)
 
-            shear_phase_1 = op.exp(op.multiply_complex(op._j, self.coord_phase_1 * alpha))
-            shear_phase_2 = op.exp(op.multiply_complex(op._j, self.coord_phase_2 * beta))
+            shear_phase_1 = torch.exp(1j * self.coord_phase_1 * alpha)
+            shear_phase_2 = torch.exp(1j * self.coord_phase_2 * beta)
 
             self.dim[self.axis] = self.slice_per_tile
             self.obj_rotate = op.r2c(torch.ones([self.dim[0], self.dim[1], self.dim[2]], dtype=self.dtype, device=self.device) * self.pad_value)
@@ -336,8 +334,7 @@ class ImageRotation:
                 elif self.axis == 2:
                     self.range_crop_z = slice(0, self.dim[self.axis])
                     obj[:,:,idx_slice] = self._rotate_3d(obj[:,:,idx_slice], shear_phase_1, shear_phase_2)
-                self.obj_rotate[...,0] = self.pad_value
-                self.obj_rotate[...,1] = 0.0
+                self.obj_rotate[:] = self.pad_value + 0.j
             self.dim[self.axis] = obj.shape[self.axis]
             self.obj_rotate = None
             if flag_cpu:
@@ -355,8 +352,8 @@ class ImageRotation:
             alpha       = 1.0 * np.tan(theta / 2.0)
             beta        = np.sin(-1.0 * theta)
             
-            shear_phase_1 = op.exp(op.multiply_complex(op._j, self.coord_phase_1 * alpha))
-            shear_phase_2 = op.exp(op.multiply_complex(op._j, self.coord_phase_2 * beta))
+            shear_phase_1 = torch.exp(1j * self.coord_phase_1 * alpha)
+            shear_phase_2 = torch.exp(1j * self.coord_phase_2 * beta)
 
             self.dim[self.axis] = self.slice_per_tile
             self.obj_rotate = op.r2c(torch.zeros([self.dim[0], self.dim[1], self.dim[2]], dtype=self.dtype, device=self.device))
@@ -391,12 +388,12 @@ class BinObject(torch.autograd.Function):
     @staticmethod
     def forward(ctx, obj_in, factor):
         assert (obj_in.shape[2] % factor) == 0
-        assert len(obj_in.shape)  == 4
+        assert len(obj_in.shape) == 3
         ctx.factor = factor
         if factor == 1:
             return obj_in
-        n_y, n_x, n_z, n_c = obj_in.shape
-        obj_out = obj_in.reshape(n_y, n_x, n_z//factor, factor, n_c).sum(3)
+        n_y, n_x, n_z = obj_in.shape
+        obj_out = obj_in.reshape(n_y, n_x, n_z//factor, factor).sum(3)
         return obj_out
 
     @staticmethod
@@ -405,6 +402,6 @@ class BinObject(torch.autograd.Function):
         if factor == 1:
             return grad_output, None
 
-        return grad_output.repeat_interleave(factor, dim=-2), None
+        return grad_output.repeat_interleave(factor, dim=-1), None
 
 
