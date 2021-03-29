@@ -123,6 +123,7 @@ class TotalVariation(ProximalOperator):
 			self.parameter_list = parameter
 			parameter = self.parameter_list[0]
 		
+                self.aniso_ratio    = kwargs.get("regularizer_tv_aniso_ratio",           1)
 		maxitr              = kwargs.get("regularizer_total_variation_maxitr",   15)
 		self.order          = kwargs.get("regularizer_total_variation_order",    1)
 		self.pure_real      = kwargs.get("regularizer_pure_real",                False)
