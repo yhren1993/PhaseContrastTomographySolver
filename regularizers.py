@@ -241,7 +241,7 @@ class TotalVariation(ProximalOperator):
 			u_k1[..., 0] = u_k1[..., 0] + (1.0/constant_scale**self.order/self.parameter) * self._filter_d(grad_u_hat, axis=0)
 			u_k1[..., 1] = u_k1[..., 1] + (1.0/constant_scale**self.order/self.parameter) * self._filter_d(grad_u_hat, axis=1)			
 			if len(x.shape) == 3: #3D case
-				u_k1[..., 2] = u_k1[..., 2] + (1.0/constant_scale**self.order/self.parameter) * self._filter_d(grad_u_hat, axis=2)
+				u_k1[..., 2] = u_k1[..., 2] + (1.0/constant_scale**self.order/(self.parameter)) * self._filter_d(grad_u_hat, axis=2)
 			grad_u_hat         = None
 			u_k1_norm          = self._compute_tv_norm(u_k1)
 			u_k1              /= u_k1_norm.unsqueeze(-1)
@@ -287,10 +287,10 @@ class TotalVariationAnisotropic(TotalVariation):
 					   			self._computeProxRealSingleAxis(x,shift=True) + \
 					   			self._computeProxRealSingleAxis(x.permute(1,0,2),shift=False).permute(1,0,2) + \
 					   			self._computeProxRealSingleAxis(x.permute(1,0,2),shift=True).permute(1,0,2) + \
-					   			self._computeProxRealSingleAxis(x.permute(2,0,1),shift=False).permute(1,2,0) + \
-					   			self._computeProxRealSingleAxis(x.permute(2,0,1),shift=True).permute(1,2,0)))
+					   			self._computeProxRealSingleAxis(x.permute(2,0,1),shift=False,parameter=self.parameter*3).permute(1,2,0) + \
+					   			self._computeProxRealSingleAxis(x.permute(2,0,1),shift=True,parameter=self.parameter*3).permute(1,2,0)))
 		return x
-	def _computeProxRealSingleAxis(self,x_in,shift=False):
+	def _computeProxRealSingleAxis(self,x_in,shift=False,parameter=None):
 		self.Np = x_in.shape
 		if np.mod(self.Np[0],2) == 1:
 			raise NotImplementedError('Shape cannot be odd')
@@ -299,7 +299,7 @@ class TotalVariationAnisotropic(TotalVariation):
 		else:
 			x = x_in.clone()
 		c = torch.from_numpy(np.asarray([1/np.sqrt(2)])).float().to(self.device)
-		z1 = self.softThr(c*(x[1::2,:]-x[0::2,:]))*c
+		z1 = self.softThr(c*(x[1::2,:]-x[0::2,:]), parameter)*c
 		x[0::2,:] += x[1::2,:]
 		x[1::2,:]  = x[0::2,:]
 		x         *= c**2
@@ -309,8 +309,10 @@ class TotalVariationAnisotropic(TotalVariation):
 			x = x.roll(-1, dims = 0)
 		return x
 
-	def softThr(self,x):
-		return torch.sign(x) * (torch.abs(x) - self.parameter) * (torch.abs(x) > self.parameter).float()
+	def softThr(self,x, parameter=None):
+		if parameter is None:
+			parameter = self.parameter
+		return torch.sign(x) * (torch.abs(x) - parameter) * (torch.abs(x) > parameter).float()
 
 class Positivity(ProximalOperator):
 	"""Enforce positivity constraint on a complex variable's real & imaginary part."""
