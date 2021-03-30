@@ -122,8 +122,7 @@ class TotalVariation(ProximalOperator):
 		if not np.isscalar(parameter):
 			self.parameter_list = parameter
 			parameter = self.parameter_list[0]
-		
-                self.aniso_ratio    = kwargs.get("regularizer_tv_aniso_ratio",           1)
+		self.aniso_ratio    = kwargs.get("regularizer_tv_aniso_ratio",           1)
 		maxitr              = kwargs.get("regularizer_total_variation_maxitr",   15)
 		self.order          = kwargs.get("regularizer_total_variation_order",    1)
 		self.pure_real      = kwargs.get("regularizer_pure_real",                False)
@@ -288,10 +287,10 @@ class TotalVariationAnisotropic(TotalVariation):
 					   			self._computeProxRealSingleAxis(x,shift=True) + \
 					   			self._computeProxRealSingleAxis(x.permute(1,0,2),shift=False).permute(1,0,2) + \
 					   			self._computeProxRealSingleAxis(x.permute(1,0,2),shift=True).permute(1,0,2) + \
-					   			self._computeProxRealSingleAxis(x.permute(2,0,1),shift=False).permute(1,2,0) + \
-					   			self._computeProxRealSingleAxis(x.permute(2,0,1),shift=True).permute(1,2,0)))
+					   			self._computeProxRealSingleAxis(x.permute(2,0,1),shift=False,parameter=self.parameter * self.aniso_ratio).permute(1,2,0) + \
+					   			self._computeProxRealSingleAxis(x.permute(2,0,1),shift=True,parameter=self.parameter * self.aniso_ratio).permute(1,2,0)))
 		return x
-	def _computeProxRealSingleAxis(self,x_in,shift=False):
+	def _computeProxRealSingleAxis(self,x_in,shift=False,parameter=None):
 		self.Np = x_in.shape
 		if np.mod(self.Np[0],2) == 1:
 			raise NotImplementedError('Shape cannot be odd')
@@ -300,7 +299,7 @@ class TotalVariationAnisotropic(TotalVariation):
 		else:
 			x = x_in.clone()
 		c = torch.from_numpy(np.asarray([1/np.sqrt(2)])).float().to(self.device)
-		z1 = self.softThr(c*(x[1::2,:]-x[0::2,:]))*c
+		z1 = self.softThr(c*(x[1::2,:]-x[0::2,:]),parameter)*c
 		x[0::2,:] += x[1::2,:]
 		x[1::2,:]  = x[0::2,:]
 		x         *= c**2
@@ -310,7 +309,9 @@ class TotalVariationAnisotropic(TotalVariation):
 			x = x.roll(-1, dims = 0)
 		return x
 
-	def softThr(self,x):
+	def softThr(self,x,parameter):
+		if parameter is None:
+			parameter = self.parameter
 		return torch.sign(x) * (torch.abs(x) - self.parameter) * (torch.abs(x) > self.parameter).float()
 
 class Positivity(ProximalOperator):
@@ -404,3 +405,4 @@ class PurePhase(ProximalOperator):
 # 		else:
 # 		    x = self._softThreshold(x.real) + 1.0j * self._softThreshold(x.imag)
 # 		return x		
+
