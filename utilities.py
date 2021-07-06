@@ -337,6 +337,7 @@ class ImageRotation:
                 self.obj_rotate[:] = self.pad_value + 0.j
             self.dim[self.axis] = obj.shape[self.axis]
             self.obj_rotate = None
+            torch.cuda.empty_cache()
             if flag_cpu:
                 obj = obj.cpu()
             return obj
