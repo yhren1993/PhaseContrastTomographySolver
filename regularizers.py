@@ -42,6 +42,7 @@ class Regularizer:
 	def __init__(self, verbose = True, **kwargs):
 		#Given all parameters, construct all proximal operators
 		self.prox_list = []
+		self.device = kwargs.get("device", torch.device("cuda"))
 		#Total Variation
 		if kwargs.get("regularizer_total_variation", False):
 			if kwargs.get("regularizer_total_variation_gpu", False):
@@ -97,7 +98,8 @@ class Regularizer:
 	def apply(self, x):
 		for prox_op in self.prox_list:
 			x = prox_op.compute_prox(x)
-		torch.cuda.empty_cache()
+		if self.device == torch.device('cuda'):
+			torch.cuda.empty_cache()
 		return x
 
 class ProximalOperator():

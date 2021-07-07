@@ -31,6 +31,7 @@ bin_obj       = utilities.BinObject.apply
 complex_abs   = op.ComplexAbs.apply
 # field_defocus = Defocus.apply
 
+
 class TorchTomographySolver:
 	def __init__(self, **kwargs):
 		"""
@@ -94,13 +95,16 @@ class TorchTomographySolver:
 		
 		self.shape 			     = kwargs.get("shape")
 		
-		self.shuffle		     = kwargs.get("shuffle",          True)
+		self.shuffle		     = kwargs.get("shuffle",              True)
 		self.optim_max_itr       = kwargs.get("maxitr",               100)
 		self.optim_step_size     = kwargs.get("step_size",            0.1)
 		self.optim_momentum      = kwargs.get("momentum",             0.0)
 
 		self.obj_update_iterations = kwargs.get("obj_update_iterations", np.arange(self.optim_max_itr))
 
+		self.flag_gpu            = kwargs.get("flag_gpu",             True)
+		self.device              = torch.device('cuda') if self.flag_gpu else torch.device('cpu')
+		kwargs["device"]         = self.device
 		#parameters for transform alignment
 		self.transform_align     = kwargs.get("transform_align",      False)
 		self.ta_method           = kwargs.get("ta_method",            "turboreg")
@@ -146,8 +150,8 @@ class TorchTomographySolver:
 		if reg_temp_param is not None:
 			if not np.isscalar(reg_temp_param):
 				assert self.optim_max_itr == len(kwargs["regularizer_total_variation_parameter"])
-		self.regularizer_obj         = Regularizer(**kwargs)
-		self.rotation_obj	     = utilities.ImageRotation(self.shape, axis = 0)
+		self.regularizer_obj     = Regularizer(**kwargs)
+		self.rotation_obj	     = utilities.ImageRotation(self.shape, axis = 0, device=torch.device('cuda'))
 		
 		self.cost_function       = nn.MSELoss(reduction='sum')
     	
@@ -168,10 +172,11 @@ class TorchTomographySolver:
     	#initialize object
 		self.obj = obj_init
 		if self.obj is None:
-			self.obj = op.r2c(torch.zeros(self.shape).cuda())
+			self.obj = op.r2c(torch.zeros(self.shape).to(self.device))
 		else:
-			if not self.obj.is_cuda:
-				self.obj = self.obj.cuda()
+			if self.device == torch.device('cuda'):
+				if not self.obj.is_cuda:
+					self.obj = self.obj.to(self.device)
 			self.obj = op.r2c(self.obj)
 		
 		#initialize shift parameters
@@ -209,12 +214,12 @@ class TorchTomographySolver:
 				else:
 					rotation_angle, defocus_list, rotation_idx = data[-3:]
 				#prepare tilt specific parameters
-				defocus_list = torch.flatten(defocus_list).cuda()
+				defocus_list = torch.flatten(defocus_list).to(self.device)
 				rotation_angle = rotation_angle.item()
 				yx_shift = None
 				if self.shift_align and self.sa_method == "gradient" and itr_idx in self.sa_iterations:
 					yx_shift = self.yx_shifts[:,:,rotation_idx]
-					yx_shift = yx_shift.cuda()
+					yx_shift = yx_shift.to(self.device)
 					yx_shift.requires_grad_()
 				if self.defocus_refine and self.dr_method == "gradient" and itr_idx in self.dr_iterations:
 					defocus_list.requires_grad_()					
@@ -260,7 +265,7 @@ class TorchTomographySolver:
 						self.dataset.update_amplitudes(amplitudes, rotation_idx)
 
 			    		#compute cost
-					cost = self.cost_function(estimated_amplitudes, amplitudes.cuda())
+					cost = self.cost_function(estimated_amplitudes, amplitudes.to(self.device))
 					running_cost += cost.item()
 
 					#backpropagation
@@ -306,7 +311,8 @@ class TorchTomographySolver:
 			
 			#apply regularization
 			amplitudes = None
-			torch.cuda.empty_cache()
+			if self.device == torch.device("cuda"):
+				torch.cuda.empty_cache()
 			if not forward_only:
 				if itr_idx in self.obj_update_iterations:
 					self.obj = self.regularizer_obj.apply(self.obj)
@@ -419,7 +425,7 @@ class PhaseContrastScattering(nn.Module):
 		self._pupil = Pupil(self.shape[0:2], self.voxel_size[0], self.wavelength, **kwargs)
 
 		#defocus operator
-		self._defocus = Defocus()
+		self._defocus = Defocus(**kwargs)
 
 		#shift correction
 		self._shift = shift.ImageShiftGradientBased(self.shape[0:2], **kwargs)

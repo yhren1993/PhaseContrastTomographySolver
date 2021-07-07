@@ -47,7 +47,13 @@ import numpy as np
 #         return grad_output.sum(2), None, grad_defocus_list
 
 class Defocus(nn.Module):
-    def forward(ctx, field, kernel, defocus_list= [0.0]):
+    def __init__(self, device=torch.device('cuda'), **kwargs):
+        super(Defocus, self).__init__()
+        self.device = device
+        
+    def forward(self, field, kernel, defocus_list= [0.0]):
+        field = field.cuda()
+        kernel = kernel.cuda()
         fft_n_dim = 2
         dim = [-fft_n_dim+i for i in range(fft_n_dim)]
         field = torch.fft.fftn(field, dim=dim)
@@ -58,32 +64,39 @@ class Defocus(nn.Module):
             kernel_temp = kernel_temp if defocus_list[defocus_idx] > 0. else torch.conj(kernel_temp)
             field_out[defocus_idx,...] = field[defocus_idx,...] * kernel_temp
         field_out = torch.fft.ifftn(field_out, dim=dim).permute(1,2,0)
-        return field_out
+        return field_out.to(self.device)
 
 class MultislicePropagation(nn.Module):
     def __init__(self, shape, voxel_size, wavelength,  numerical_aperture=None, dtype=torch.float32, device=torch.device('cuda'),   **kwargs):
         super(MultislicePropagation, self).__init__()
         self.shape            = shape  
         self.voxel_size       = voxel_size
+        self.device           = device
         self.distance_to_center = (self.shape[2]/2. - 1/2.) * self.voxel_size[2]
         self.propagate        = SingleSlicePropagation(self.shape[0:2], self.voxel_size[0],  wavelength, \
                                                        numerical_aperture=None, flag_band_limited=False, \
-                                                       dtype=dtype, device=device)    
+                                                       dtype=dtype, device=torch.device('cuda'))    
     def forward(self, obj, field_in=None):
         field = field_in
         if field is None:
             field = obj[:,:,0]
         else:
             field *= obj[:,:,0]
-        field = self.propagate(field, self.voxel_size[2])    
-        for layer_idx in range(1, self.shape[2]):
-            field *= obj[:,:,layer_idx]
-            if layer_idx < self.shape[2] - 1:
-                #Propagate forward one layer
-                field = self.propagate(field, self.voxel_size[2])
-            else:
-                field = self.propagate(field, -1. * self.distance_to_center)
-        return field
+        field = field.cuda()
+        field = self.propagate(field, self.voxel_size[2])
+        slice_per_gpu = 500
+        for idx_start in range(1, self.shape[2], slice_per_gpu):
+            idx_end = np.min([self.shape[2], idx_start+slice_per_gpu])
+            idx_slice = slice(idx_start, idx_end)            
+            obj_temp = obj[:,:,idx_slice].cuda()
+            for layer_idx in range(0, obj_temp.shape[2]):
+                field *= obj_temp[:,:,layer_idx]
+                if layer_idx < self.shape[2] - 1:
+                    #Propagate forward one layer
+                    field = self.propagate(field, self.voxel_size[2])
+                else:
+                    field = self.propagate(field, -1. * self.distance_to_center)
+        return field.to(self.device)
 
 class SingleSlicePropagation(nn.Module):
     '''

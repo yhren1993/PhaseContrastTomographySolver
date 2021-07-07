@@ -39,7 +39,7 @@ def generate_angular_spectrum_kernel(shape, pixel_size, wavelength, \
     ky_lin, kx_lin = util.generate_grid_2d(shape, pixel_size, flag_fourier=True, dtype=dtype, device=device)
     if flag_band_limited:
         assert numerical_aperture is not None, "need to provide numerical aperture of the system!"
-        pupil_crop    = op.r2c(generate_hard_pupil(shape, pixel_size, numerical_aperture, wavelength))
+        pupil_crop    = op.r2c(generate_hard_pupil(shape, pixel_size, numerical_aperture, wavelength, dtype, device))
     else: 
         pupil_crop    = 1.0
     prop_kernel = 2.0 * np.pi * pupil_crop * \

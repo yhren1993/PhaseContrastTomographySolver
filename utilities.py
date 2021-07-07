@@ -15,7 +15,7 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
 
-MAX_DIM = 512*512*512
+MAX_DIM = 512*512*850
 
 def show3DStack(image_3d, axis = 2, cmap = "gray", clim = None, extent = (0, 1, 0, 1)):
     if clim is None:
@@ -238,13 +238,13 @@ class ImageRotation:
         self.range_crop_x = slice(self.pad_size[1],self.pad_size[1] + shape[1])
         self.range_crop_z = slice(self.pad_size[2],self.pad_size[2] + shape[2])
 
-        self.y            = generate_grid_1d(self.dim[0], dtype=dtype).unsqueeze(-1).unsqueeze(-1)
-        self.x            = generate_grid_1d(self.dim[1], dtype=dtype).unsqueeze(0).unsqueeze(-1)
-        self.z            = generate_grid_1d(self.dim[2], dtype=dtype).unsqueeze(0).unsqueeze(0)
+        self.y            = generate_grid_1d(self.dim[0], dtype=dtype, device=device).unsqueeze(-1).unsqueeze(-1)
+        self.x            = generate_grid_1d(self.dim[1], dtype=dtype, device=device).unsqueeze(0).unsqueeze(-1)
+        self.z            = generate_grid_1d(self.dim[2], dtype=dtype, device=device).unsqueeze(0).unsqueeze(0)
         
-        self.ky           = generate_grid_1d(self.dim[0], flag_fourier = True, dtype=dtype).unsqueeze(-1).unsqueeze(-1)
-        self.kx           = generate_grid_1d(self.dim[1], flag_fourier = True, dtype=dtype).unsqueeze(0).unsqueeze(-1)
-        self.kz           = generate_grid_1d(self.dim[2], flag_fourier = True, dtype=dtype).unsqueeze(0).unsqueeze(0)
+        self.ky           = generate_grid_1d(self.dim[0], flag_fourier = True, dtype=dtype, device=device).unsqueeze(-1).unsqueeze(-1)
+        self.kx           = generate_grid_1d(self.dim[1], flag_fourier = True, dtype=dtype, device=device).unsqueeze(0).unsqueeze(-1)
+        self.kz           = generate_grid_1d(self.dim[2], flag_fourier = True, dtype=dtype, device=device).unsqueeze(0).unsqueeze(0)
 
         #Compute FFTs sequentially if object size is too large
         self.slice_per_tile = int(np.min([np.floor(MAX_DIM * self.dim[self.axis] / np.prod(self.dim)), self.dim[self.axis]]))            
@@ -308,9 +308,10 @@ class ImageRotation:
             return obj
         else:
             flag_cpu = False
-            if not obj.is_cuda:
-                flag_cpu = True
-                obj = obj.cuda()
+            if self.device == torch.device('cuda'):
+                if not obj.is_cuda:
+                    flag_cpu = True
+            #         obj = obj.to(self.device)
             theta      *= np.pi / 180.0
             alpha       = 1.0 * np.tan(theta / 2.0)
             beta        = np.sin(-1.0 * theta)
@@ -327,17 +328,18 @@ class ImageRotation:
                 self.dim[self.axis] = int(idx_end - idx_start)
                 if self.axis == 0:
                     self.range_crop_y = slice(0, self.dim[self.axis])
-                    obj[idx_slice,:,:] = self._rotate_3d(obj[idx_slice,:,:], shear_phase_1, shear_phase_2)
+                    obj[idx_slice,:,:] = self._rotate_3d(obj[idx_slice,:,:].cuda(), shear_phase_1, shear_phase_2).cpu()
                 elif self.axis == 1:
                     self.range_crop_x = slice(0, self.dim[self.axis])
-                    obj[:,idx_slice,:] = self._rotate_3d(obj[:,idx_slice,:], shear_phase_1, shear_phase_2)
+                    obj[:,idx_slice,:] = self._rotate_3d(obj[:,idx_slice,:].cuda(), shear_phase_1, shear_phase_2).cpu()
                 elif self.axis == 2:
                     self.range_crop_z = slice(0, self.dim[self.axis])
-                    obj[:,:,idx_slice] = self._rotate_3d(obj[:,:,idx_slice], shear_phase_1, shear_phase_2)
+                    obj[:,:,idx_slice] = self._rotate_3d(obj[:,:,idx_slice].cuda(), shear_phase_1, shear_phase_2).cpu()
                 self.obj_rotate[:] = self.pad_value + 0.j
             self.dim[self.axis] = obj.shape[self.axis]
             self.obj_rotate = None
-            torch.cuda.empty_cache()
+            if self.device == torch.device('cuda'):
+                torch.cuda.empty_cache()
             if flag_cpu:
                 obj = obj.cpu()
             return obj
@@ -347,8 +349,9 @@ class ImageRotation:
         if theta == 0:
             return obj
         else:
-            if not obj.is_cuda:
-                obj = obj.cuda()            
+            if self.device == torch.device("cuda"):
+                if not obj.is_cuda:
+                    obj = obj.to(self.device)
             theta      *= np.pi / 180.0
             alpha       = 1.0 * np.tan(theta / 2.0)
             beta        = np.sin(-1.0 * theta)
